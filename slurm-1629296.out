@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 31, in <module>
+    import wandb
+ModuleNotFoundError: No module named 'wandb'

@@ -1,0 +1,272 @@
+{
+  "metadata": {
+    "start_time": "2025-10-08T13:23:45.505256",
+    "dataset": "sin_transformation",
+    "n_samples": 2000,
+    "max_epochs": 50,
+    "batch_size": 80,
+    "base_timesteps": 20,
+    "device": "cpu",
+    "end_time": "2025-10-08T13:25:09.317016",
+    "total_experiments": 18
+  },
+  "results": [
+    {
+      "experiment_id": 1,
+      "architecture": "iterative",
+      "loss_function": "mse",
+      "sampling_method": "gaussian",
+      "training_method": "implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 0.1777082453481853,
+      "test_mse": 0.03746236115694046,
+      "test_mae_x": 0.07944052666425705,
+      "test_mae_y": 0.19427354633808136,
+      "test_mae_z": 0.051076821982860565,
+      "test_kl_divergence": 2.2842400074005127,
+      "runtime_seconds": 3.7421646118164062,
+      "epochs": 50,
+      "convergence_rate": 0.01623536423780024
+    },
+    {
+      "experiment_id": 2,
+      "architecture": "iterative",
+      "loss_function": "mse",
+      "sampling_method": "gaussian",
+      "training_method": "semi_implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 0.1516517116688192,
+      "test_mse": 0.03156406804919243,
+      "test_mae_x": 0.10567982494831085,
+      "test_mae_y": 0.14913637936115265,
+      "test_mae_z": 0.03791901841759682,
+      "test_kl_divergence": 2.7618274688720703,
+      "runtime_seconds": 5.5917534828186035,
+      "epochs": 50,
+      "convergence_rate": 0.017785196499899028
+    },
+    {
+      "experiment_id": 3,
+      "architecture": "iterative",
+      "loss_function": "mse",
+      "sampling_method": "convex",
+      "training_method": "implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 1.032228548079729,
+      "test_mse": 3.1086654663085938,
+      "test_mae_x": 2.3367409706115723,
+      "test_mae_y": 0.8606287240982056,
+      "test_mae_z": 0.6360024213790894,
+      "test_kl_divergence": 12.547894477844238,
+      "runtime_seconds": 3.7777295112609863,
+      "epochs": 50,
+      "convergence_rate": -0.0002957654744386673
+    },
+    {
+      "experiment_id": 4,
+      "architecture": "iterative",
+      "loss_function": "mse",
+      "sampling_method": "convex",
+      "training_method": "semi_implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 1.0862510688602924,
+      "test_mse": 3.303612232208252,
+      "test_mae_x": 2.5504159927368164,
+      "test_mae_y": 0.8116418719291687,
+      "test_mae_z": 0.6290936470031738,
+      "test_kl_divergence": 9.860546112060547,
+      "runtime_seconds": 5.583245038986206,
+      "epochs": 50,
+      "convergence_rate": -0.0005354512482881546
+    },
+    {
+      "experiment_id": 4,
+      "architecture": "iterative",
+      "loss_function": "mse",
+      "sampling_method": "convex",
+      "training_method": "semi_implicit",
+      "error": "Object of type float32 is not JSON serializable",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 5,
+      "architecture": "iterative",
+      "loss_function": "kl_divergence",
+      "sampling_method": "gaussian",
+      "training_method": "implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 4.732379451394081,
+      "test_mse": 0.03158602863550186,
+      "test_mae_x": 0.0994643047451973,
+      "test_mae_y": 0.1495952606201172,
+      "test_mae_z": 0.03369256108999252,
+      "test_kl_divergence": 2.071439743041992,
+      "runtime_seconds": 22.4918212890625,
+      "epochs": 50,
+      "convergence_rate": 0.12896658569574357
+    },
+    {
+      "experiment_id": 6,
+      "architecture": "iterative",
+      "loss_function": "kl_divergence",
+      "sampling_method": "gaussian",
+      "training_method": "semi_implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 0.15902203088626266,
+      "test_mse": 0.020527008920907974,
+      "test_mae_x": 0.0512508787214756,
+      "test_mae_y": 0.1488950550556183,
+      "test_mae_z": 0.026861948892474174,
+      "test_kl_divergence": 2.615584135055542,
+      "runtime_seconds": 5.5103771686553955,
+      "epochs": 50,
+      "convergence_rate": 0.017283839331939818
+    },
+    {
+      "experiment_id": 7,
+      "architecture": "iterative",
+      "loss_function": "kl_divergence",
+      "sampling_method": "convex",
+      "training_method": "implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 20.634066581726074,
+      "test_mse": 3.3122615814208984,
+      "test_mae_x": 2.4749841690063477,
+      "test_mae_y": 0.8544396758079529,
+      "test_mae_z": 0.6344540119171143,
+      "test_kl_divergence": 12.577252388000488,
+      "runtime_seconds": 21.90995454788208,
+      "epochs": 50,
+      "convergence_rate": 0.030348893404006958
+    },
+    {
+      "experiment_id": 8,
+      "architecture": "iterative",
+      "loss_function": "kl_divergence",
+      "sampling_method": "convex",
+      "training_method": "semi_implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 1.060807965695858,
+      "test_mse": 2.828345775604248,
+      "test_mae_x": 2.2338695526123047,
+      "test_mae_y": 0.8319776654243469,
+      "test_mae_z": 0.7504799365997314,
+      "test_kl_divergence": 21.384628295898438,
+      "runtime_seconds": 7.021992206573486,
+      "epochs": 50,
+      "convergence_rate": 0.0003016309440135956
+    },
+    {
+      "experiment_id": 8,
+      "architecture": "iterative",
+      "loss_function": "kl_divergence",
+      "sampling_method": "convex",
+      "training_method": "semi_implicit",
+      "error": "Object of type float32 is not JSON serializable",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 9,
+      "architecture": "variable",
+      "loss_function": "mse",
+      "sampling_method": "gaussian",
+      "training_method": "implicit",
+      "error": "'function' object has no attribute 'parameters'",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 10,
+      "architecture": "variable",
+      "loss_function": "mse",
+      "sampling_method": "gaussian",
+      "training_method": "semi_implicit",
+      "error": "'VariableMapDiffusion' object is not callable",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 11,
+      "architecture": "variable",
+      "loss_function": "mse",
+      "sampling_method": "convex",
+      "training_method": "implicit",
+      "error": "'function' object has no attribute 'parameters'",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 12,
+      "architecture": "variable",
+      "loss_function": "mse",
+      "sampling_method": "convex",
+      "training_method": "semi_implicit",
+      "error": "'VariableMapDiffusion' object is not callable",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 13,
+      "architecture": "variable",
+      "loss_function": "kl_divergence",
+      "sampling_method": "gaussian",
+      "training_method": "implicit",
+      "error": "'list' object is not an iterator",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 14,
+      "architecture": "variable",
+      "loss_function": "kl_divergence",
+      "sampling_method": "gaussian",
+      "training_method": "semi_implicit",
+      "error": "'VariableMapDiffusion' object is not callable",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 15,
+      "architecture": "variable",
+      "loss_function": "kl_divergence",
+      "sampling_method": "convex",
+      "training_method": "implicit",
+      "error": "'list' object is not an iterator",
+      "status": "failed"
+    },
+    {
+      "experiment_id": 16,
+      "architecture": "variable",
+      "loss_function": "kl_divergence",
+      "sampling_method": "convex",
+      "training_method": "semi_implicit",
+      "error": "'VariableMapDiffusion' object is not callable",
+      "status": "failed"
+    }
+  ],
+  "summary": {
+    "total_experiments": 18,
+    "successful": 8,
+    "failed": 10,
+    "configurations": {
+      "architecture": [
+        "iterative",
+        "variable"
+      ],
+      "loss": [
+        "mse",
+        "kl_divergence"
+      ],
+      "sampling": [
+        "gaussian",
+        "convex"
+      ],
+      "training": [
+        "implicit",
+        "semi_implicit"
+      ]
+    }
+  }
+}

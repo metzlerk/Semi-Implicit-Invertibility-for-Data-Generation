@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "start_time": "2025-10-08T13:23:45.505256",
+    "dataset": "sin_transformation",
+    "n_samples": 2000,
+    "max_epochs": 50,
+    "batch_size": 80,
+    "base_timesteps": 20,
+    "device": "cpu"
+  },
+  "results": [
+    {
+      "experiment_id": 1,
+      "architecture": "iterative",
+      "loss_function": "mse",
+      "sampling_method": "gaussian",
+      "training_method": "implicit",
+      "num_parameters": 69187,
+      "num_inputs": 3,
+      "final_training_loss": 0.1777082453481853,
+      "test_mse": 0.03746236115694046,
+      "test_mae_x": 

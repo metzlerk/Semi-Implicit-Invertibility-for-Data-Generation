@@ -1,0 +1,265 @@
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+iterativenn 0.3.0 requires torchdata, which is not installed.
+iterativenn 0.3.0 requires torchtext, which is not installed.
+iterativenn 0.3.0 requires torchvision==0.15.2, which is not installed.
+pytorch-lightning 2.0.2 requires torchmetrics>=0.7.0, which is not installed.
+spyder 5.4.3 requires pyqt5<5.16, which is not installed.
+spyder 5.4.3 requires pyqtwebengine<5.16, which is not installed.
+iterativenn 0.3.0 requires wandb==0.13.9, but you have wandb 0.22.2 which is incompatible.
+/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and can only be attached to a model field using `Annotated` metadata or by assignment. This may have happened because an `Annotated` type alias using the `type` statement was used, or if the `Field()` function was attached to a single member of a union type.
+  warnings.warn(
+/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'frozen' attribute with value True was provided to the `Field()` function, which has no effect in the context it was used. 'frozen' is field-specific metadata, and can only be attached to a model field using `Annotated` metadata or by assignment. This may have happened because an `Annotated` type alias using the `type` statement was used, or if the `Field()` function was attached to a single member of a union type.
+  warnings.warn(
+wandb: Appending key for api.wandb.ai to your netrc file: /home/kjmetzler/.netrc
+wandb: Currently logged in as: kjmetzler (kjmetzler-worcester-polytechnic-institute) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: WARNING Using a boolean value for 'reinit' is deprecated. Use 'return_previous' or 'finish_previous' instead.
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Traceback (most recent call last):
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 1093, in <module>
+    result, loss_hist = run_single_experiment(
+  File "/home/kjmetzler/4f-files/diffusion_mnist1d_experiments.py", line 852, in run_single_experiment
+    wandb_run = wandb.init(
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1601, in init
+    wandb._sentry.reraise(e)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/analytics/sentry.py", line 162, in reraise
+    raise exc.with_traceback(sys.exc_info()[2])
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1582, in init
+    run = wi.init(run_settings, run_config, run_printer)
+  File "/home/kjmetzler/anaconda3/envs/venv/lib/python3.10/site-packages/wandb/sdk/wandb_init.py", line 1025, in init
+    raise error
+wandb.errors.errors.CommError: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+Using device: cpu
+Hyperparameters:
+  Timesteps: 20
+  Hidden dimension: 64
+  Embedding dimension: 32
+  Number of layers: 2
+  Learning rate: 0.001
+  Max epochs: 50
+  Batch size: 128
+Loading MNIST1D dataset...
+  Downloading from GitHub...
+  Downloaded and cached locally
+Preparing MNIST1D data for semi-implicit diffusion training...
+Creating prime inverse patterns for each digit class...
+  Created 10 prime inverse patterns (one per digit)
+  Set 1 (Forward, z=0): 1000 noisy->clean samples
+  Set 2 (Inverse, z=1): 1000 clean->prime_inverse samples
+  Total samples: 2000
+  Input shape: (2000, 41)
+  Target shape: (2000, 41)
+Feature dimension: 41
+
+Dataset prepared:
+  Training samples: 2000
+  Batches per epoch: 16
+
+================================================================================
+EXPERIMENTAL COMPARISON FRAMEWORK
+================================================================================
+Configuration:
+  Loss functions: ['mse', 'kl_divergence']
+  Sampling methods: ['gaussian', 'convex']
+  Training methods: ['implicit', 'semi_implicit']
+
+Total experiments: 8 (removed architecture dimension)
+Architecture: Iterative (single shared U-Net)
+Epochs per experiment: 50
+Dataset: MNIST1D with 2000 samples
+================================================================================
+
+================================================================================
+STARTING COMPREHENSIVE EXPERIMENTAL SWEEP
+================================================================================
+Total experiments: 8
+Dataset: MNIST1D
+================================================================================
+
+================================================================================
+EXPERIMENT 1/8
+Loss: mse, Sampling: gaussian, Training: implicit
+================================================================================
+
+  ✗ ERROR in experiment 1: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENT 2/8
+Loss: mse, Sampling: gaussian, Training: semi_implicit
+================================================================================
+
+  ✗ ERROR in experiment 2: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENT 3/8
+Loss: mse, Sampling: convex, Training: implicit
+================================================================================
+
+  ✗ ERROR in experiment 3: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENT 4/8
+Loss: mse, Sampling: convex, Training: semi_implicit
+================================================================================
+
+  ✗ ERROR in experiment 4: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENT 5/8
+Loss: kl_divergence, Sampling: gaussian, Training: implicit
+================================================================================
+
+  ✗ ERROR in experiment 5: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENT 6/8
+Loss: kl_divergence, Sampling: gaussian, Training: semi_implicit
+================================================================================
+
+  ✗ ERROR in experiment 6: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENT 7/8
+Loss: kl_divergence, Sampling: convex, Training: implicit
+================================================================================
+
+  ✗ ERROR in experiment 7: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENT 8/8
+Loss: kl_divergence, Sampling: convex, Training: semi_implicit
+================================================================================
+
+  ✗ ERROR in experiment 8: Error uploading run: returned error 404: {"data":{"upsertBucket":null},"errors":[{"message":"entity metzlerk not found during upsertBucket","path":["upsertBucket"]}]}
+
+================================================================================
+EXPERIMENTAL SWEEP COMPLETE!
+================================================================================
+Completed: 0/8 experiments
+Failed: 8/8 experiments
+================================================================================
+
+✓ Complete results saved to: mnist1d_diffusion_experiments_20251021_110216.json
+✓ Report saved to: mnist1d_experiment_report_20251021_110216.md
+
+Experiment complete!
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp7_kl_divergence_convex_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/q1m8rto2[0m
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp2_mse_gaussian_semi_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/hlbgx13b[0m
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp5_kl_divergence_gaussian_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/xyo39ldr[0m
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp4_mse_convex_semi_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/4vm0bfx8[0m
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp3_mse_convex_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/p7jf15y3[0m
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp6_kl_divergence_gaussian_semi_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/1ajclvr7[0m
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp1_mse_gaussian_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/ekwc00uy[0m
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mexp8_kl_divergence_convex_semi_implicit[0m at: [34mhttps://wandb.ai/metzlerk/mnist1d-diffusion-experiments/runs/fnvslmnp[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110214-hlbgx13b/logs[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110215-xyo39ldr/logs[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110215-4vm0bfx8/logs[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110214-p7jf15y3/logs[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110215-1ajclvr7/logs[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110214-ekwc00uy/logs[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110215-q1m8rto2/logs[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251021_110215-fnvslmnp/logs[0m
