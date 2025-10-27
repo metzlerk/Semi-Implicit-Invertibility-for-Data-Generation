@@ -11,6 +11,8 @@ Semi-Implicit Training:
 - Four losses: forward, inverse, roundtrip_forward_inverse, roundtrip_inverse_forward
 """
 
+import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,7 +29,17 @@ import time
 from datetime import datetime
 import math
 import requests
-import sys
+
+# Get paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+DATA_DIR = ROOT_DIR
+RESULTS_DIR = os.path.join(ROOT_DIR, 'results')
+IMAGES_DIR = os.path.join(ROOT_DIR, 'images')
+
+# Create directories if they don't exist
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(IMAGES_DIR, exist_ok=True)
 import pickle
 import wandb
 
@@ -78,9 +90,11 @@ def load_mnist1d():
     """Load MNIST1D dataset from GitHub"""
     print("Loading MNIST1D dataset...")
     
+    data_path = os.path.join(DATA_DIR, 'mnist1d_data.pkl')
+    
     try:
         # Try to load from local file first
-        with open('mnist1d_data.pkl', 'rb') as f:
+        with open(data_path, 'rb') as f:
             data = pickle.load(f)
         print("  Loaded from local cache")
     except:
@@ -91,7 +105,7 @@ def load_mnist1d():
         data = pickle.loads(response.content)
         
         # Save locally for future use
-        with open('mnist1d_data.pkl', 'wb') as f:
+        with open(data_path, 'wb') as f:
             pickle.dump(data, f)
         print("  Downloaded and cached locally")
     
@@ -1177,7 +1191,8 @@ for loss in EXPERIMENT_CONFIG['loss']:
                 
                 # Save intermediate results
                 if exp_id % 2 == 0:
-                    with open('mnist1d_experiment_results_partial.json', 'w') as f:
+                    partial_path = os.path.join(RESULTS_DIR, 'mnist1d_experiment_results_partial.json')
+                    with open(partial_path, 'w') as f:
                         json.dump({
                             'metadata': experiment_metadata,
                             'results': all_results
@@ -1214,7 +1229,7 @@ print("="*80)
 # =============================================================================
 # SAVE RESULTS
 # =============================================================================
-results_filename = f"mnist1d_diffusion_experiments_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+results_filename = os.path.join(RESULTS_DIR, f"mnist1d_diffusion_experiments_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 
 final_results = {
     'metadata': experiment_metadata,
@@ -1235,7 +1250,7 @@ print(f"\n✓ Complete results saved to: {results_filename}")
 # =============================================================================
 # CREATE SUMMARY REPORT
 # =============================================================================
-report_filename = f"mnist1d_experiment_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+report_filename = os.path.join(RESULTS_DIR, f"mnist1d_experiment_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md")
 
 successful_results = [r for r in all_results if 'error' not in r]
 

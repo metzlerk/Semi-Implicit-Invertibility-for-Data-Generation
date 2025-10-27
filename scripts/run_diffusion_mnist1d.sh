@@ -15,5 +15,5 @@ conda activate venv
 # Install wandb if not already installed
 pip install wandb --quiet
 
-cd /home/kjmetzler/
-python 4f-files/diffusion_mnist1d_experiments.py
+cd /home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation
+python scripts/diffusion_mnist1d_experiments.py

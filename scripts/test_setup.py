@@ -28,8 +28,13 @@ print()
 print("Purpose: Verify code runs without errors")
 print("="*80)
 
+# Get the directory containing this script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(script_dir)  # Go up one level to project root
+
 # Read the main script
-with open('diffusion_mnist1d_experiments.py', 'r') as f:
+script_path = os.path.join(script_dir, 'diffusion_mnist1d_experiments.py')
+with open(script_path, 'r') as f:
     script_content = f.read()
 
 # Check if imports work
@@ -58,8 +63,9 @@ try:
     import requests
     import pickle
     
+    data_path = os.path.join(root_dir, 'mnist1d_data.pkl')
     try:
-        with open('mnist1d_data.pkl', 'rb') as f:
+        with open(data_path, 'rb') as f:
             data = pickle.load(f)
         print("  ✓ Loaded from cache")
     except:
@@ -67,7 +73,7 @@ try:
         url = "https://github.com/greydanus/mnist1d/raw/master/mnist1d_data.pkl"
         response = requests.get(url)
         data = pickle.loads(response.content)
-        with open('mnist1d_data.pkl', 'wb') as f:
+        with open(data_path, 'wb') as f:
             pickle.dump(data, f)
         print("  ✓ Downloaded and cached")
     
