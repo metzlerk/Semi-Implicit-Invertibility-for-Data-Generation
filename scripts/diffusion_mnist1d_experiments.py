@@ -64,14 +64,14 @@ print(f"Using device: {device}")
 # =============================================================================
 # HYPERPARAMETERS
 # =============================================================================
-timesteps = 20
+timesteps = 100
 beta_start = 0.0001
 beta_end = 0.02
 hidden_dim = 64
 embedding_dim = 32
 num_layers = 2
 learning_rate = 1e-3
-max_epochs = 500
+max_epochs = 1000
 batch_size = 128
 
 print(f"Hyperparameters:")
@@ -181,6 +181,8 @@ def prepare_mnist1d_for_diffusion(data, n_samples=2000):
     The z-coordinate indicates direction:
     - z=0: Model should denoise (forward)
     - z=1: Model should add noise to prime inverse pattern (inverse)
+    
+    Returns also the digit labels for same-class convex combinations
     """
     print("Preparing MNIST1D data for semi-implicit diffusion training...")
     
@@ -203,8 +205,10 @@ def prepare_mnist1d_for_diffusion(data, n_samples=2000):
     # Sample balanced across all digits
     forward_inputs = []
     forward_targets = []
+    forward_labels = []
     inverse_inputs = []
     inverse_targets = []
+    inverse_labels = []
     
     samples_per_digit = n_per_set // 10
     
@@ -223,17 +227,21 @@ def prepare_mnist1d_for_diffusion(data, n_samples=2000):
         # For now, store clean data which will be noised during training
         forward_inputs.append(clean_samples)
         forward_targets.append(clean_samples)  # Target is clean
+        forward_labels.append(np.full(n_available, digit))
         
         # Set 2 (Inverse, z=1): Clean -> Prime Inverse
         inverse_inputs.append(clean_samples)
         # Target is the prime inverse pattern for this digit
         inverse_targets.append(prime_inverse_patterns[digit][:n_available])
+        inverse_labels.append(np.full(n_available, digit))
     
     # Stack all samples
     forward_inputs = np.vstack(forward_inputs)
     forward_targets = np.vstack(forward_targets)
+    forward_labels = np.concatenate(forward_labels)
     inverse_inputs = np.vstack(inverse_inputs)
     inverse_targets = np.vstack(inverse_targets)
+    inverse_labels = np.concatenate(inverse_labels)
     
     # Add z-coordinate
     # Forward set: z=0
@@ -247,6 +255,7 @@ def prepare_mnist1d_for_diffusion(data, n_samples=2000):
     # Combine both sets
     input_points = np.vstack([forward_inputs_with_z, inverse_inputs_with_z])
     target_points = np.vstack([forward_targets_with_z, inverse_targets_with_z])
+    labels = np.concatenate([forward_labels, inverse_labels])
     
     print(f"  Set 1 (Forward, z=0): {len(forward_inputs)} noisy->clean samples")
     print(f"  Set 2 (Inverse, z=1): {len(inverse_inputs)} clean->prime_inverse samples")
@@ -254,11 +263,11 @@ def prepare_mnist1d_for_diffusion(data, n_samples=2000):
     print(f"  Input shape: {input_points.shape}")
     print(f"  Target shape: {target_points.shape}")
     
-    return input_points, target_points, prime_inverse_patterns
+    return input_points, target_points, prime_inverse_patterns, labels
 
 # Load and prepare data
 mnist1d_data = load_mnist1d()
-input_data, target_data, prime_inverse_patterns = prepare_mnist1d_for_diffusion(mnist1d_data, n_samples=2000)
+input_data, target_data, prime_inverse_patterns, digit_labels = prepare_mnist1d_for_diffusion(mnist1d_data, n_samples=2000)
 
 # Feature dimension (40 features + 1 label)
 feature_dim = input_data.shape[1]
@@ -472,9 +481,12 @@ class PointUNet(nn.Module):
 # CONVEX COMBINATION SAMPLING
 # =============================================================================
 class ConvexCombinationDiffusion:
-    """Diffusion process using convex combinations instead of Gaussian noise"""
+    """Diffusion process using convex combinations instead of Gaussian noise
     
-    def __init__(self, base_diffusion):
+    For each sample, takes convex combination with another sample of the SAME CLASS
+    """
+    
+    def __init__(self, base_diffusion, labels=None):
         self.timesteps = base_diffusion.timesteps
         self.device = base_diffusion.device
         self.betas = base_diffusion.betas
@@ -485,14 +497,41 @@ class ConvexCombinationDiffusion:
         self.sqrt_one_minus_alphas_cumprod = base_diffusion.sqrt_one_minus_alphas_cumprod
         self.sqrt_alphas_cumprod_prev = base_diffusion.sqrt_alphas_cumprod_prev
         self.posterior_variance = base_diffusion.posterior_variance
+        self.labels = labels  # Store labels for same-class sampling
     
-    def q_sample(self, x_start, t, noise=None):
-        """Sample using convex combinations instead of Gaussian noise"""
+    def q_sample(self, x_start, t, noise=None, batch_labels=None):
+        """Sample using convex combinations of SAME CLASS instead of Gaussian noise"""
         batch_size = x_start.shape[0]
         
-        # Create convex combinations
-        indices = torch.randperm(batch_size, device=self.device)
-        x_shuffled = x_start[indices]
+        # Create same-class convex combinations
+        if batch_labels is not None:
+            # For each sample, find another sample with the same label
+            x_shuffled = torch.zeros_like(x_start)
+            for i in range(batch_size):
+                label = batch_labels[i].item()
+                # Find all samples with same label
+                same_class_mask = (batch_labels == label)
+                same_class_indices = torch.where(same_class_mask)[0]
+                
+                if len(same_class_indices) > 1:
+                    # Remove current index
+                    same_class_indices = same_class_indices[same_class_indices != i]
+                    if len(same_class_indices) > 0:
+                        # Randomly select one
+                        pair_idx = same_class_indices[torch.randint(0, len(same_class_indices), (1,))].item()
+                        x_shuffled[i] = x_start[pair_idx]
+                    else:
+                        # Fallback: use random permutation if no other same-class sample
+                        x_shuffled[i] = x_start[torch.randperm(batch_size)[0]]
+                else:
+                    # Only one sample of this class, use random permutation
+                    x_shuffled[i] = x_start[torch.randperm(batch_size)[0]]
+        else:
+            # Fallback to random permutation if no labels provided
+            indices = torch.randperm(batch_size, device=self.device)
+            x_shuffled = x_start[indices]
+        
+        # Random convex combination weight
         alpha = torch.rand(batch_size, 1, device=self.device)
         convex_combo = alpha * x_start + (1 - alpha) * x_shuffled
         
@@ -529,13 +568,33 @@ class ConvexCombinationDiffusion:
         model_mean, posterior_variance = self.q_posterior_mean_variance(x_start, x_t, t)
         return model_mean, posterior_variance
     
-    def p_sample(self, model, x_t, t, condition=None):
-        """Sample using convex combinations"""
+    def p_sample(self, model, x_t, t, condition=None, batch_labels=None):
+        """Sample using convex combinations of same class"""
         model_mean, model_variance = self.p_mean_variance(model, x_t, t, condition)
         
         batch_size = x_t.shape[0]
-        indices = torch.randperm(batch_size, device=self.device)
-        mean_shuffled = model_mean[indices]
+        
+        # Create same-class convex combinations for noise
+        if batch_labels is not None:
+            mean_shuffled = torch.zeros_like(model_mean)
+            for i in range(batch_size):
+                label = batch_labels[i].item()
+                same_class_mask = (batch_labels == label)
+                same_class_indices = torch.where(same_class_mask)[0]
+                
+                if len(same_class_indices) > 1:
+                    same_class_indices = same_class_indices[same_class_indices != i]
+                    if len(same_class_indices) > 0:
+                        pair_idx = same_class_indices[torch.randint(0, len(same_class_indices), (1,))].item()
+                        mean_shuffled[i] = model_mean[pair_idx]
+                    else:
+                        mean_shuffled[i] = model_mean[torch.randperm(batch_size)[0]]
+                else:
+                    mean_shuffled[i] = model_mean[torch.randperm(batch_size)[0]]
+        else:
+            indices = torch.randperm(batch_size, device=self.device)
+            mean_shuffled = model_mean[indices]
+        
         alpha = torch.rand(batch_size, 1, device=self.device)
         noise_replacement = alpha * model_mean + (1 - alpha) * mean_shuffled - model_mean
         
@@ -543,26 +602,45 @@ class ConvexCombinationDiffusion:
         
         return model_mean + nonzero_mask * torch.sqrt(model_variance) * noise_replacement
     
-    def p_sample_loop(self, model, shape, condition=None):
+    def p_sample_loop(self, model, shape, condition=None, batch_labels=None):
         """Generate samples using convex combination sampling"""
         device = next(model.parameters()).device
         
         # Start with convex combinations
         x_base = torch.randn(shape, device=device)
-        indices = torch.randperm(shape[0], device=device)
-        x_shuffled = x_base[indices]
+        
+        if batch_labels is not None:
+            x_shuffled = torch.zeros_like(x_base)
+            for i in range(shape[0]):
+                label = batch_labels[i].item()
+                same_class_mask = (batch_labels == label)
+                same_class_indices = torch.where(same_class_mask)[0]
+                
+                if len(same_class_indices) > 1:
+                    same_class_indices = same_class_indices[same_class_indices != i]
+                    if len(same_class_indices) > 0:
+                        pair_idx = same_class_indices[torch.randint(0, len(same_class_indices), (1,))].item()
+                        x_shuffled[i] = x_base[pair_idx]
+                    else:
+                        x_shuffled[i] = x_base[torch.randperm(shape[0])[0]]
+                else:
+                    x_shuffled[i] = x_base[torch.randperm(shape[0])[0]]
+        else:
+            indices = torch.randperm(shape[0], device=device)
+            x_shuffled = x_base[indices]
+        
         alpha = torch.rand(shape[0], 1, device=device)
         x_t = alpha * x_base + (1 - alpha) * x_shuffled
         
         for i in tqdm(reversed(range(self.timesteps)), desc="Sampling (Convex)", leave=False):
             t = torch.full((shape[0],), i, device=device, dtype=torch.long)
-            x_t = self.p_sample(model, x_t, t, condition)
+            x_t = self.p_sample(model, x_t, t, condition, batch_labels)
         
         return x_t
     
-    def sample(self, model, shape, condition=None):
+    def sample(self, model, shape, condition=None, batch_labels=None):
         """Generate samples using convex combinations"""
-        return self.p_sample_loop(model, shape, condition)
+        return self.p_sample_loop(model, shape, condition, batch_labels)
 
 # =============================================================================
 # LOSS FUNCTIONS
@@ -871,20 +949,289 @@ class SemiImplicitTrainer:
         return total_loss.item(), loss_dict
 
 # =============================================================================
+# SEMI-EXPLICIT TRAINING (SVD-based inversion)
+# =============================================================================
+class SemiExplicitTrainer:
+    """
+    Semi-explicit training using SVD-based pseudo-inverse
+    
+    Instead of training a separate inverse model or using a z-switch,
+    we compute the pseudo-inverse of the forward network using SVD.
+    
+    For a linear layer: W_inv ≈ (W^T W)^{-1} W^T
+    """
+    
+    def __init__(self, model, diffusion, optimizer, device):
+        self.model = model
+        self.diffusion = diffusion
+        self.optimizer = optimizer
+        self.device = device
+    
+    def compute_layer_pseudoinverse(self, layer):
+        """Compute pseudo-inverse of a linear layer using SVD"""
+        if isinstance(layer, nn.Linear):
+            W = layer.weight.data  # Shape: (out_features, in_features)
+            # Compute SVD: W = U @ S @ V^T
+            U, S, Vt = torch.svd(W)
+            # Pseudo-inverse: W^+ = V @ S^{-1} @ U^T
+            # Add small epsilon for numerical stability
+            S_inv = torch.where(S > 1e-5, 1.0 / S, torch.zeros_like(S))
+            W_pinv = Vt.t() @ torch.diag(S_inv) @ U.t()
+            return W_pinv
+        return None
+    
+    def apply_inverse_pass(self, output, model):
+        """
+        Apply approximate inverse pass through network using SVD
+        This is a simplified version - in practice, we'd need to handle
+        nonlinearities and composite layers more carefully
+        """
+        # For simplicity, we'll use the model's forward pass with z=1
+        # and approximate the inverse through the output projection layer
+        
+        # Get the output projection layer
+        output_layer = model.output_proj
+        W_inv = self.compute_layer_pseudoinverse(output_layer)
+        
+        # Apply pseudo-inverse
+        if W_inv is not None:
+            # Simple linear approximation of inverse
+            approx_inverse = F.linear(output, W_inv)
+            return approx_inverse
+        else:
+            # Fallback: return output
+            return output
+    
+    def train_step(self, input_points, target_points, condition_points):
+        """
+        Train with SVD-based inverse approximation
+        """
+        self.optimizer.zero_grad()
+        
+        # Separate forward and inverse samples
+        z_values = input_points[:, -1]
+        forward_mask = z_values == 0
+        inverse_mask = z_values == 1
+        
+        total_loss = 0
+        loss_dict = {}
+        
+        # Forward loss
+        if forward_mask.sum() > 0:
+            forward_inputs = input_points[forward_mask]
+            forward_targets = target_points[forward_mask]
+            
+            t_forward = torch.randint(0, self.diffusion.timesteps, (forward_inputs.shape[0],), device=self.device).long()
+            noise_forward = torch.randn_like(forward_targets)
+            noisy_inputs = self.diffusion.q_sample(forward_targets, t_forward, noise_forward)
+            condition_forward = noisy_inputs.clone()
+            condition_forward[:, -1] = 0
+            
+            predicted_noise_forward = self.model(noisy_inputs, t_forward, condition_forward)
+            forward_loss = F.mse_loss(predicted_noise_forward, noise_forward)
+            total_loss += forward_loss
+            loss_dict['forward'] = forward_loss.item()
+        else:
+            loss_dict['forward'] = 0.0
+        
+        # Inverse loss using SVD approximation
+        if inverse_mask.sum() > 0:
+            inverse_inputs = input_points[inverse_mask]
+            inverse_targets = target_points[inverse_mask]
+            
+            t_inverse = torch.randint(0, self.diffusion.timesteps, (inverse_inputs.shape[0],), device=self.device).long()
+            
+            # First, denoise the input (forward pass)
+            noise_to_prime = torch.randn_like(inverse_targets)
+            noisy_prime = self.diffusion.q_sample(inverse_targets, t_inverse, noise_to_prime)
+            
+            condition_inverse = inverse_inputs.clone()
+            condition_inverse[:, -1] = 0  # Use forward mode first
+            
+            # Forward pass
+            predicted_noise = self.model(noisy_prime, t_inverse, condition_inverse)
+            denoised = self.diffusion.predict_start_from_noise(noisy_prime, t_inverse, predicted_noise)
+            
+            # Apply SVD-based inverse to get to prime space
+            approx_prime = self.apply_inverse_pass(denoised, self.model)
+            
+            # Loss: approximated prime should match target prime
+            inverse_loss = F.mse_loss(approx_prime, inverse_targets)
+            total_loss += 0.5 * inverse_loss  # Weight it less since it's approximate
+            loss_dict['inverse'] = inverse_loss.item()
+        else:
+            loss_dict['inverse'] = 0.0
+        
+        total_loss.backward()
+        self.optimizer.step()
+        
+        return total_loss.item(), loss_dict
+
+# =============================================================================
+# EXPLICIT TRAINING (Mathematical network inversion)
+# =============================================================================
+class ExplicitTrainer:
+    """
+    Explicit training with mathematical network inversion
+    
+    For networks with invertible activation functions and square weight matrices,
+    we can compute exact inverses. This uses the chain rule for composite functions.
+    
+    For f(x) = σ(Wx + b), the inverse is: f^{-1}(y) = W^{-1}(σ^{-1}(y) - b)
+    """
+    
+    def __init__(self, model, diffusion, optimizer, device):
+        self.model = model
+        self.diffusion = diffusion
+        self.optimizer = optimizer
+        self.device = device
+    
+    def invert_activation(self, y, activation_type='relu'):
+        """
+        Invert activation function where possible
+        ReLU: inverse is identity for y>0, undefined for y<=0 (we use identity)
+        """
+        if activation_type == 'relu':
+            # ReLU inverse is identity (with assumption that input was positive)
+            return y
+        elif activation_type == 'tanh':
+            # atanh
+            return torch.atanh(torch.clamp(y, -0.99, 0.99))
+        elif activation_type == 'sigmoid':
+            # logit
+            y_clamped = torch.clamp(y, 0.01, 0.99)
+            return torch.log(y_clamped / (1 - y_clamped))
+        else:
+            return y
+    
+    def explicit_inverse_layer(self, layer, y):
+        """
+        Compute explicit inverse of a linear layer
+        For W @ x + b = y, solve for x: x = W^{-1} @ (y - b)
+        """
+        if isinstance(layer, nn.Linear):
+            W = layer.weight.data
+            b = layer.bias.data if layer.bias is not None else torch.zeros(W.shape[0], device=self.device)
+            
+            # Check if matrix is square and invertible
+            if W.shape[0] == W.shape[1]:
+                try:
+                    # Compute inverse
+                    W_inv = torch.inverse(W + 1e-5 * torch.eye(W.shape[0], device=self.device))
+                    # Apply inverse: x = W^{-1} @ (y - b)
+                    y_centered = y - b
+                    x = F.linear(y_centered, W_inv)
+                    return x
+                except:
+                    # If inversion fails, use pseudo-inverse
+                    W_pinv = torch.pinverse(W)
+                    y_centered = y - b
+                    x = F.linear(y_centered, W_pinv)
+                    return x
+            else:
+                # Use pseudo-inverse for non-square matrices
+                W_pinv = torch.pinverse(W)
+                y_centered = y - b
+                x = F.linear(y_centered, W_pinv)
+                return x
+        return y
+    
+    def apply_network_inverse(self, output, model):
+        """
+        Apply mathematical inverse through the network
+        
+        This is approximate since we can't perfectly invert complex architectures,
+        but we try to invert the key transformation layers.
+        """
+        # Start from output and work backwards through output_proj
+        x = output
+        
+        # Invert output projection
+        x = self.explicit_inverse_layer(model.output_proj, x)
+        
+        # For U-Net, we'd need to invert the decoder, middle, and encoder
+        # This is simplified - just inverting the output layer as demonstration
+        
+        return x
+    
+    def train_step(self, input_points, target_points, condition_points):
+        """
+        Train with explicit mathematical inversion
+        """
+        self.optimizer.zero_grad()
+        
+        z_values = input_points[:, -1]
+        forward_mask = z_values == 0
+        inverse_mask = z_values == 1
+        
+        total_loss = 0
+        loss_dict = {}
+        
+        # Forward loss (standard denoising)
+        if forward_mask.sum() > 0:
+            forward_inputs = input_points[forward_mask]
+            forward_targets = target_points[forward_mask]
+            
+            t_forward = torch.randint(0, self.diffusion.timesteps, (forward_inputs.shape[0],), device=self.device).long()
+            noise_forward = torch.randn_like(forward_targets)
+            noisy_inputs = self.diffusion.q_sample(forward_targets, t_forward, noise_forward)
+            condition_forward = noisy_inputs.clone()
+            condition_forward[:, -1] = 0
+            
+            predicted_noise_forward = self.model(noisy_inputs, t_forward, condition_forward)
+            forward_loss = F.mse_loss(predicted_noise_forward, noise_forward)
+            total_loss += forward_loss
+            loss_dict['forward'] = forward_loss.item()
+        else:
+            loss_dict['forward'] = 0.0
+        
+        # Inverse loss using explicit network inversion
+        if inverse_mask.sum() > 0:
+            inverse_inputs = input_points[inverse_mask]
+            inverse_targets = target_points[inverse_mask]
+            
+            t_inverse = torch.randint(0, self.diffusion.timesteps, (inverse_inputs.shape[0],), device=self.device).long()
+            
+            # Forward pass to get denoised result
+            noise_inv = torch.randn_like(inverse_inputs)
+            noisy_inv = self.diffusion.q_sample(inverse_inputs, t_inverse, noise_inv)
+            condition_inv = noisy_inv.clone()
+            condition_inv[:, -1] = 0
+            
+            predicted_noise_inv = self.model(noisy_inv, t_inverse, condition_inv)
+            denoised_inv = self.diffusion.predict_start_from_noise(noisy_inv, t_inverse, predicted_noise_inv)
+            
+            # Apply explicit inverse to reach prime space
+            explicit_prime = self.apply_network_inverse(denoised_inv, self.model)
+            
+            # Loss
+            inverse_loss = F.mse_loss(explicit_prime, inverse_targets)
+            total_loss += 0.5 * inverse_loss
+            loss_dict['inverse'] = inverse_loss.item()
+        else:
+            loss_dict['inverse'] = 0.0
+        
+        total_loss.backward()
+        self.optimizer.step()
+        
+        return total_loss.item(), loss_dict
+
+# =============================================================================
 # DATASET AND DATALOADER
 # =============================================================================
 class PointDiffusionDataset(torch.utils.data.Dataset):
-    def __init__(self, input_data, target_data):
+    def __init__(self, input_data, target_data, labels):
         self.input_data = torch.tensor(input_data, dtype=torch.float32)
         self.target_data = torch.tensor(target_data, dtype=torch.float32)
+        self.labels = torch.tensor(labels, dtype=torch.long)
     
     def __len__(self):
         return len(self.input_data)
     
     def __getitem__(self, idx):
-        return self.input_data[idx], self.target_data[idx]
+        return self.input_data[idx], self.target_data[idx], self.labels[idx]
 
-train_dataset = PointDiffusionDataset(input_data, target_data)
+train_dataset = PointDiffusionDataset(input_data, target_data, digit_labels)
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 print(f"\nDataset prepared:")
@@ -897,7 +1244,7 @@ print(f"  Batches per epoch: {len(train_loader)}")
 EXPERIMENT_CONFIG = {
     'loss': ['fid', 'kl_divergence'],
     'sampling': ['gaussian', 'convex'],
-    'training': ['implicit', 'semi_implicit']
+    'training': ['implicit', 'semi_implicit', 'semi_explicit', 'explicit']
 }
 
 experiment_results = []
@@ -919,7 +1266,7 @@ print(f"Configuration:")
 print(f"  Loss functions: {EXPERIMENT_CONFIG['loss']}")
 print(f"  Sampling methods: {EXPERIMENT_CONFIG['sampling']}")
 print(f"  Training methods: {EXPERIMENT_CONFIG['training']}")
-print(f"\nTotal experiments: 8 (removed architecture dimension)")
+print(f"\nTotal experiments: 16 (2 loss × 2 sampling × 4 training)")
 print(f"Architecture: Iterative (single shared U-Net)")
 print(f"Epochs per experiment: {max_epochs}")
 print(f"Dataset: MNIST1D with {len(train_dataset)} samples")
@@ -931,7 +1278,7 @@ print("="*80)
 def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
     """Run a single experiment configuration"""
     print(f"\n{'='*80}")
-    print(f"EXPERIMENT {exp_id}/8")
+    print(f"EXPERIMENT {exp_id}/16")
     print(f"Loss: {loss_type}, Sampling: {sampling_type}, Training: {training_type}")
     print(f"{'='*80}")
     
@@ -987,10 +1334,29 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
             beta_end=beta_end,
             device=device
         )
-        diff_process = ConvexCombinationDiffusion(base_diff)
+        diff_process = ConvexCombinationDiffusion(base_diff, labels=digit_labels)
+    
+    # For implicit training, create a second model for inverse
+    inverse_model_obj = None
+    if training_type == 'implicit':
+        inverse_model_obj = PointUNet(
+            input_dim=feature_dim,
+            hidden_dim=hidden_dim,
+            time_dim=embedding_dim,
+            condition_dim=feature_dim,
+            num_layers=num_layers
+        ).to(device)
+        total_params += sum(p.numel() for p in inverse_model_obj.parameters())
+        print(f"  Created separate inverse model (2 models total)")
     
     # Create optimizer
-    optimizer = optim.Adam(model_obj.parameters(), lr=learning_rate)
+    if inverse_model_obj is not None:
+        optimizer = optim.Adam(
+            list(model_obj.parameters()) + list(inverse_model_obj.parameters()),
+            lr=learning_rate
+        )
+    else:
+        optimizer = optim.Adam(model_obj.parameters(), lr=learning_rate)
     
     # Training
     print(f"\nTraining model...")
@@ -1001,38 +1367,75 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
         epoch_loss_dict = {'forward': 0, 'inverse': 0, 'roundtrip_fi': 0, 'roundtrip_if': 0}
         num_batches = 0
         
-        for batch_idx, (input_batch, target_batch) in enumerate(train_loader):
+        for batch_idx, (input_batch, target_batch, labels_batch) in enumerate(train_loader):
             input_batch = input_batch.to(device)
             target_batch = target_batch.to(device)
+            labels_batch = labels_batch.to(device)
             
             if training_type == 'implicit':
-                # Implicit training: only forward direction (z=0), no z-switch
+                # Implicit training: Train two separate models
+                # Model 1: Forward (noisy -> clean)
+                # Model 2: Inverse (clean -> prime)
                 optimizer.zero_grad()
                 
-                # Filter only forward samples (z=0)
                 z_values = input_batch[:, -1]
                 forward_mask = z_values == 0
+                inverse_mask = z_values == 1
                 
+                total_batch_loss = 0
+                
+                # Train forward model
                 if forward_mask.sum() > 0:
                     forward_inputs = input_batch[forward_mask]
                     forward_targets = target_batch[forward_mask]
+                    forward_labels = labels_batch[forward_mask]
                     
-                    # Use compute_distribution_loss for all loss types
-                    loss = compute_distribution_loss(
-                        model_obj,
-                        diff_process,
-                        forward_inputs,
-                        forward_targets,
-                        forward_inputs,
-                        loss_type=loss_type,
-                        n_samples_for_dist=min(100, forward_targets.shape[0])
-                    )
+                    t_forward = torch.randint(0, diff_process.timesteps, (forward_inputs.shape[0],), device=device).long()
+                    noise_forward = torch.randn_like(forward_targets)
                     
-                    loss.backward()
-                    optimizer.step()
-                    epoch_loss += loss.item()
+                    # Pass labels for convex sampling
+                    if sampling_type == 'convex':
+                        noisy_inputs = diff_process.q_sample(forward_targets, t_forward, noise_forward, forward_labels)
+                    else:
+                        noisy_inputs = diff_process.q_sample(forward_targets, t_forward, noise_forward)
+                    
+                    condition_forward = noisy_inputs.clone()
+                    condition_forward[:, -1] = 0
+                    
+                    predicted_noise_forward = model_obj(noisy_inputs, t_forward, condition_forward)
+                    forward_loss = F.mse_loss(predicted_noise_forward, noise_forward)
+                    total_batch_loss += forward_loss
+                    epoch_loss_dict['forward'] += forward_loss.item()
                 
-            else:  # semi_implicit
+                # Train inverse model
+                if inverse_mask.sum() > 0 and inverse_model_obj is not None:
+                    inverse_inputs = input_batch[inverse_mask]
+                    inverse_targets = target_batch[inverse_mask]
+                    inverse_labels = labels_batch[inverse_mask]
+                    
+                    t_inverse = torch.randint(0, diff_process.timesteps, (inverse_inputs.shape[0],), device=device).long()
+                    noise_inverse = torch.randn_like(inverse_targets)
+                    
+                    if sampling_type == 'convex':
+                        noisy_inverse = diff_process.q_sample(inverse_targets, t_inverse, noise_inverse, inverse_labels)
+                    else:
+                        noisy_inverse = diff_process.q_sample(inverse_targets, t_inverse, noise_inverse)
+                    
+                    condition_inverse = noisy_inverse.clone()
+                    condition_inverse[:, -1] = 1
+                    
+                    predicted_noise_inverse = inverse_model_obj(noisy_inverse, t_inverse, condition_inverse)
+                    inverse_loss = F.mse_loss(predicted_noise_inverse, noise_inverse)
+                    total_batch_loss += inverse_loss
+                    epoch_loss_dict['inverse'] += inverse_loss.item()
+                
+                # Backward and optimize both models
+                if total_batch_loss > 0:
+                    total_batch_loss.backward()
+                    optimizer.step()
+                    epoch_loss += total_batch_loss.item()
+                
+            elif training_type == 'semi_implicit':
                 # Semi-implicit training with all four losses
                 trainer = SemiImplicitTrainer(model_obj, diff_process, optimizer, device)
                 total_loss, loss_dict = trainer.train_step(
@@ -1040,7 +1443,30 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
                 )
                 epoch_loss += total_loss
                 
-                # Accumulate individual losses for logging
+                for key in epoch_loss_dict:
+                    if key in loss_dict:
+                        epoch_loss_dict[key] += loss_dict[key]
+            
+            elif training_type == 'semi_explicit':
+                # Semi-explicit training with SVD-based inversion
+                trainer = SemiExplicitTrainer(model_obj, diff_process, optimizer, device)
+                total_loss, loss_dict = trainer.train_step(
+                    input_batch, target_batch, input_batch
+                )
+                epoch_loss += total_loss
+                
+                for key in epoch_loss_dict:
+                    if key in loss_dict:
+                        epoch_loss_dict[key] += loss_dict[key]
+            
+            elif training_type == 'explicit':
+                # Explicit training with mathematical network inversion
+                trainer = ExplicitTrainer(model_obj, diff_process, optimizer, device)
+                total_loss, loss_dict = trainer.train_step(
+                    input_batch, target_batch, input_batch
+                )
+                epoch_loss += total_loss
+                
                 for key in epoch_loss_dict:
                     if key in loss_dict:
                         epoch_loss_dict[key] += loss_dict[key]
@@ -1065,22 +1491,74 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
     # Testing
     print(f"\nTesting model...")
     model_obj.eval()
+    if inverse_model_obj is not None:
+        inverse_model_obj.eval()
     
     with torch.no_grad():
         # Generate test data
         test_data = load_mnist1d()
-        test_input, test_target, _ = prepare_mnist1d_for_diffusion(test_data, n_samples=200)
+        test_input, test_target, _, test_labels = prepare_mnist1d_for_diffusion(test_data, n_samples=200)
         test_input_tensor = torch.tensor(test_input, dtype=torch.float32).to(device)
         test_target_tensor = torch.tensor(test_target, dtype=torch.float32).to(device)
+        test_labels_tensor = torch.tensor(test_labels, dtype=torch.long).to(device)
         
-        # Sample from model
-        generated_samples = diff_process.sample(
-            model_obj,
-            shape=(test_input_tensor.shape[0], feature_dim),
-            condition=test_input_tensor
-        )
+        # CONSISTENT TESTING FOR ALL METHODS:
+        # Separate forward and inverse samples based on z-coordinate
+        z_values = test_input_tensor[:, -1]
+        forward_mask = z_values == 0
+        inverse_mask = z_values == 1
         
-        # Calculate metrics
+        generated_samples = torch.zeros_like(test_target_tensor)
+        
+        # Generate forward samples (z=0: noisy -> clean)
+        if forward_mask.sum() > 0:
+            if training_type == 'implicit' and inverse_model_obj is not None:
+                # Use forward model for implicit method
+                use_model = model_obj
+            else:
+                # Use single model for all other methods
+                use_model = model_obj
+            
+            if sampling_type == 'convex':
+                forward_samples = diff_process.sample(
+                    use_model,
+                    shape=(forward_mask.sum(), feature_dim),
+                    condition=test_input_tensor[forward_mask],
+                    batch_labels=test_labels_tensor[forward_mask]
+                )
+            else:
+                forward_samples = diff_process.sample(
+                    use_model,
+                    shape=(forward_mask.sum(), feature_dim),
+                    condition=test_input_tensor[forward_mask]
+                )
+            generated_samples[forward_mask] = forward_samples
+        
+        # Generate inverse samples (z=1: clean -> prime)
+        if inverse_mask.sum() > 0:
+            if training_type == 'implicit' and inverse_model_obj is not None:
+                # Use inverse model for implicit method
+                use_model = inverse_model_obj
+            else:
+                # Use single model for all other methods
+                use_model = model_obj
+            
+            if sampling_type == 'convex':
+                inverse_samples = diff_process.sample(
+                    use_model,
+                    shape=(inverse_mask.sum(), feature_dim),
+                    condition=test_input_tensor[inverse_mask],
+                    batch_labels=test_labels_tensor[inverse_mask]
+                )
+            else:
+                inverse_samples = diff_process.sample(
+                    use_model,
+                    shape=(inverse_mask.sum(), feature_dim),
+                    condition=test_input_tensor[inverse_mask]
+                )
+            generated_samples[inverse_mask] = inverse_samples
+        
+        # Calculate overall metrics (combined forward + inverse)
         mse = F.mse_loss(generated_samples, test_target_tensor).item()
         
         gen_np = generated_samples.cpu().numpy()
@@ -1093,11 +1571,7 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
         kl_div = compute_kl_divergence_loss(generated_samples, test_target_tensor).item()
         fid_score = compute_fid_score(test_target_tensor, generated_samples).item()
         
-        # Test forward and inverse separately
-        z_values = test_input_tensor[:, -1]
-        forward_mask = z_values == 0
-        inverse_mask = z_values == 1
-        
+        # Calculate metrics separately for forward and inverse directions
         if forward_mask.sum() > 0:
             forward_mse = F.mse_loss(generated_samples[forward_mask], test_target_tensor[forward_mask]).item()
             forward_fid = compute_fid_score(test_target_tensor[forward_mask], generated_samples[forward_mask]).item()
@@ -1170,7 +1644,7 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
 print("\n" + "="*80)
 print("STARTING COMPREHENSIVE EXPERIMENTAL SWEEP")
 print("="*80)
-print(f"Total experiments: 8")
+print(f"Total experiments: 16")
 print(f"Dataset: MNIST1D")
 print("="*80)
 
