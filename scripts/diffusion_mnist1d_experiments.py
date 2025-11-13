@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
+from sklearn.decomposition import PCA
 from scipy.stats import entropy
 import scipy.linalg
 from tqdm import tqdm
@@ -36,10 +37,12 @@ ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 DATA_DIR = ROOT_DIR
 RESULTS_DIR = os.path.join(ROOT_DIR, 'results')
 IMAGES_DIR = os.path.join(ROOT_DIR, 'images')
+MODELS_DIR = os.path.join(ROOT_DIR, 'models')
 
 # Create directories if they don't exist
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(IMAGES_DIR, exist_ok=True)
+os.makedirs(MODELS_DIR, exist_ok=True)
 import pickle
 import wandb
 
@@ -711,6 +714,59 @@ def compute_kl_divergence_loss(predicted_samples, target_samples, n_bins=50):
         total_kl += kl_div
     return torch.tensor(total_kl, device=predicted_samples.device, dtype=torch.float32)
 
+
+def compute_per_digit_kl_divergence(predicted_samples, target_samples, labels, n_bins=50):
+    """
+    Compute KL divergence separately for each digit class and return mean
+    This avoids mixing distributions across different digits
+    """
+    labels_np = labels.detach().cpu().numpy() if torch.is_tensor(labels) else labels
+    unique_digits = np.unique(labels_np)
+    
+    kl_scores = []
+    
+    for digit in unique_digits:
+        mask = labels_np == digit
+        if mask.sum() > 1:  # Need at least 2 samples
+            pred_digit = predicted_samples[mask]
+            target_digit = target_samples[mask]
+            
+            kl_digit = compute_kl_divergence_loss(pred_digit, target_digit, n_bins)
+            kl_scores.append(kl_digit.item())
+    
+    # Return mean KL across all digits
+    if len(kl_scores) > 0:
+        return torch.tensor(np.mean(kl_scores), device=predicted_samples.device, dtype=torch.float32)
+    else:
+        return torch.tensor(0.0, device=predicted_samples.device, dtype=torch.float32)
+
+
+def compute_per_digit_fid(real_samples, generated_samples, labels):
+    """
+    Compute FID score separately for each digit class and return mean
+    This avoids mixing distributions across different digits
+    """
+    labels_np = labels.detach().cpu().numpy() if torch.is_tensor(labels) else labels
+    unique_digits = np.unique(labels_np)
+    
+    fid_scores = []
+    
+    for digit in unique_digits:
+        mask = labels_np == digit
+        if mask.sum() > 5:  # Need enough samples for covariance
+            real_digit = real_samples[mask]
+            gen_digit = generated_samples[mask]
+            
+            fid_digit = compute_fid_score(real_digit, gen_digit)
+            fid_scores.append(fid_digit.item())
+    
+    # Return mean FID across all digits
+    if len(fid_scores) > 0:
+        return torch.tensor(np.mean(fid_scores), device=real_samples.device, dtype=torch.float32)
+    else:
+        return torch.tensor(0.0, device=real_samples.device, dtype=torch.float32)
+
+
 def compute_distribution_loss(model, diffusion, input_points, target_points, condition_points, 
                               loss_type='mse', n_samples_for_dist=100):
     """Compute loss based on loss_type"""
@@ -955,6 +1011,9 @@ class SemiExplicitTrainer:
     """
     Semi-explicit training using SVD-based pseudo-inverse
     
+    TRAINING: Only trains forward model (noisy -> clean) on forward samples
+    INFERENCE: Uses SVD pseudo-inverse to invert the model for inverse direction
+    
     Instead of training a separate inverse model or using a z-switch,
     we compute the pseudo-inverse of the forward network using SVD.
     
@@ -1004,19 +1063,18 @@ class SemiExplicitTrainer:
     
     def train_step(self, input_points, target_points, condition_points):
         """
-        Train with SVD-based inverse approximation
+        Train ONLY on forward samples (standard denoising)
+        Inverse capability comes from SVD inversion at test time
         """
         self.optimizer.zero_grad()
         
-        # Separate forward and inverse samples
+        # Only train on forward samples (z=0)
         z_values = input_points[:, -1]
         forward_mask = z_values == 0
-        inverse_mask = z_values == 1
         
-        total_loss = 0
         loss_dict = {}
         
-        # Forward loss
+        # Forward loss - train the denoising model
         if forward_mask.sum() > 0:
             forward_inputs = input_points[forward_mask]
             forward_targets = target_points[forward_mask]
@@ -1029,43 +1087,18 @@ class SemiExplicitTrainer:
             
             predicted_noise_forward = self.model(noisy_inputs, t_forward, condition_forward)
             forward_loss = F.mse_loss(predicted_noise_forward, noise_forward)
-            total_loss += forward_loss
+            
+            forward_loss.backward()
+            self.optimizer.step()
+            
             loss_dict['forward'] = forward_loss.item()
+            loss_dict['inverse'] = 0.0  # No inverse training
+            
+            return forward_loss.item(), loss_dict
         else:
             loss_dict['forward'] = 0.0
-        
-        # Inverse loss using SVD approximation
-        if inverse_mask.sum() > 0:
-            inverse_inputs = input_points[inverse_mask]
-            inverse_targets = target_points[inverse_mask]
-            
-            t_inverse = torch.randint(0, self.diffusion.timesteps, (inverse_inputs.shape[0],), device=self.device).long()
-            
-            # First, denoise the input (forward pass)
-            noise_to_prime = torch.randn_like(inverse_targets)
-            noisy_prime = self.diffusion.q_sample(inverse_targets, t_inverse, noise_to_prime)
-            
-            condition_inverse = inverse_inputs.clone()
-            condition_inverse[:, -1] = 0  # Use forward mode first
-            
-            # Forward pass
-            predicted_noise = self.model(noisy_prime, t_inverse, condition_inverse)
-            denoised = self.diffusion.predict_start_from_noise(noisy_prime, t_inverse, predicted_noise)
-            
-            # Apply SVD-based inverse to get to prime space
-            approx_prime = self.apply_inverse_pass(denoised, self.model)
-            
-            # Loss: approximated prime should match target prime
-            inverse_loss = F.mse_loss(approx_prime, inverse_targets)
-            total_loss += 0.5 * inverse_loss  # Weight it less since it's approximate
-            loss_dict['inverse'] = inverse_loss.item()
-        else:
             loss_dict['inverse'] = 0.0
-        
-        total_loss.backward()
-        self.optimizer.step()
-        
-        return total_loss.item(), loss_dict
+            return 0.0, loss_dict
 
 # =============================================================================
 # EXPLICIT TRAINING (Mathematical network inversion)
@@ -1073,6 +1106,9 @@ class SemiExplicitTrainer:
 class ExplicitTrainer:
     """
     Explicit training with mathematical network inversion
+    
+    TRAINING: Only trains forward model (noisy -> clean) on forward samples
+    INFERENCE: Uses mathematical inversion to invert the model for inverse direction
     
     For networks with invertible activation functions and square weight matrices,
     we can compute exact inverses. This uses the chain rule for composite functions.
@@ -1156,15 +1192,15 @@ class ExplicitTrainer:
     
     def train_step(self, input_points, target_points, condition_points):
         """
-        Train with explicit mathematical inversion
+        Train ONLY on forward samples (standard denoising)
+        Inverse capability comes from mathematical inversion at test time
         """
         self.optimizer.zero_grad()
         
+        # Only train on forward samples (z=0)
         z_values = input_points[:, -1]
         forward_mask = z_values == 0
-        inverse_mask = z_values == 1
         
-        total_loss = 0
         loss_dict = {}
         
         # Forward loss (standard denoising)
@@ -1180,41 +1216,18 @@ class ExplicitTrainer:
             
             predicted_noise_forward = self.model(noisy_inputs, t_forward, condition_forward)
             forward_loss = F.mse_loss(predicted_noise_forward, noise_forward)
-            total_loss += forward_loss
+            
+            forward_loss.backward()
+            self.optimizer.step()
+            
             loss_dict['forward'] = forward_loss.item()
+            loss_dict['inverse'] = 0.0  # No inverse training
+            
+            return forward_loss.item(), loss_dict
         else:
             loss_dict['forward'] = 0.0
-        
-        # Inverse loss using explicit network inversion
-        if inverse_mask.sum() > 0:
-            inverse_inputs = input_points[inverse_mask]
-            inverse_targets = target_points[inverse_mask]
-            
-            t_inverse = torch.randint(0, self.diffusion.timesteps, (inverse_inputs.shape[0],), device=self.device).long()
-            
-            # Forward pass to get denoised result
-            noise_inv = torch.randn_like(inverse_inputs)
-            noisy_inv = self.diffusion.q_sample(inverse_inputs, t_inverse, noise_inv)
-            condition_inv = noisy_inv.clone()
-            condition_inv[:, -1] = 0
-            
-            predicted_noise_inv = self.model(noisy_inv, t_inverse, condition_inv)
-            denoised_inv = self.diffusion.predict_start_from_noise(noisy_inv, t_inverse, predicted_noise_inv)
-            
-            # Apply explicit inverse to reach prime space
-            explicit_prime = self.apply_network_inverse(denoised_inv, self.model)
-            
-            # Loss
-            inverse_loss = F.mse_loss(explicit_prime, inverse_targets)
-            total_loss += 0.5 * inverse_loss
-            loss_dict['inverse'] = inverse_loss.item()
-        else:
             loss_dict['inverse'] = 0.0
-        
-        total_loss.backward()
-        self.optimizer.step()
-        
-        return total_loss.item(), loss_dict
+            return 0.0, loss_dict
 
 # =============================================================================
 # DATASET AND DATALOADER
@@ -1271,6 +1284,186 @@ print(f"Architecture: Iterative (single shared U-Net)")
 print(f"Epochs per experiment: {max_epochs}")
 print(f"Dataset: MNIST1D with {len(train_dataset)} samples")
 print("="*80)
+
+# =============================================================================
+# VISUALIZATION AND MODEL SAVING FUNCTIONS
+# =============================================================================
+def generate_digit_samples(model, inverse_model, diffusion, sampling_type, training_type, device, feature_dim):
+    """
+    Generate one sample for each digit (0-9) for visual comparison
+    Returns dict mapping digit -> generated sample
+    """
+    digit_samples = {}
+    
+    model.eval()
+    if inverse_model is not None:
+        inverse_model.eval()
+    
+    with torch.no_grad():
+        for digit in range(10):
+            # Create a condition vector for this digit
+            # Use the mean of all samples of this digit from the training data
+            digit_mask = digit_labels == digit
+            digit_data = input_data[digit_mask]
+            
+            if len(digit_data) > 0:
+                # Use mean as condition
+                condition = torch.tensor(digit_data.mean(axis=0), dtype=torch.float32).unsqueeze(0).to(device)
+                
+                # Generate sample (forward direction, z=0)
+                if training_type == 'implicit' and inverse_model is not None:
+                    use_model = model
+                else:
+                    use_model = model
+                
+                # Create a dummy label tensor for this digit
+                label_tensor = torch.tensor([digit], dtype=torch.long).to(device)
+                
+                if sampling_type == 'convex':
+                    sample = diffusion.sample(
+                        use_model,
+                        shape=(1, feature_dim),
+                        condition=condition,
+                        batch_labels=label_tensor
+                    )
+                else:
+                    sample = diffusion.sample(
+                        use_model,
+                        shape=(1, feature_dim),
+                        condition=condition
+                    )
+                
+                digit_samples[digit] = sample[0].cpu().numpy()
+    
+    return digit_samples
+
+
+def plot_digit_samples(digit_samples, exp_id, loss_type, sampling_type, training_type):
+    """
+    Plot generated samples for each digit
+    """
+    fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+    axes = axes.flatten()
+    
+    for digit in range(10):
+        if digit in digit_samples:
+            sample = digit_samples[digit][:-1]  # Remove z-coordinate
+            axes[digit].plot(sample)
+            axes[digit].set_title(f'Digit {digit}')
+            axes[digit].set_ylim(-5, 5)
+            axes[digit].grid(True, alpha=0.3)
+    
+    plt.suptitle(f'Exp {exp_id}: {training_type}_{sampling_type}_{loss_type} - Generated Samples per Digit', 
+                 fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    filename = f'exp{exp_id:02d}_digit_samples_{training_type}_{sampling_type}_{loss_type}.png'
+    filepath = os.path.join(IMAGES_DIR, filename)
+    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"  ✓ Saved digit samples visualization: {filename}")
+    return filepath
+
+
+def plot_pca_comparison(original_data, synthetic_data, original_labels, exp_id, loss_type, sampling_type, training_type):
+    """
+    Plot PCA comparison of original vs synthetic data distributions
+    """
+    # Remove z-coordinate if present
+    if original_data.shape[1] > 40:
+        original_data_clean = original_data[:, :-1]
+    else:
+        original_data_clean = original_data
+        
+    if synthetic_data.shape[1] > 40:
+        synthetic_data_clean = synthetic_data[:, :-1]
+    else:
+        synthetic_data_clean = synthetic_data
+    
+    # Fit PCA on original data
+    pca = PCA(n_components=2)
+    original_pca = pca.fit_transform(original_data_clean)
+    synthetic_pca = pca.transform(synthetic_data_clean)
+    
+    # Create comparison plot
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Plot original data
+    scatter1 = axes[0].scatter(original_pca[:, 0], original_pca[:, 1], 
+                               c=original_labels, cmap='tab10', alpha=0.6, s=20)
+    axes[0].set_title('Original Data (First 2 PCs)', fontsize=12, fontweight='bold')
+    axes[0].set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}% variance)')
+    axes[0].set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}% variance)')
+    axes[0].grid(True, alpha=0.3)
+    plt.colorbar(scatter1, ax=axes[0], label='Digit')
+    
+    # Plot synthetic data
+    scatter2 = axes[1].scatter(synthetic_pca[:, 0], synthetic_pca[:, 1], 
+                               c=original_labels[:len(synthetic_pca)], cmap='tab10', alpha=0.6, s=20)
+    axes[1].set_title('Synthetic Data (First 2 PCs)', fontsize=12, fontweight='bold')
+    axes[1].set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.1f}% variance)')
+    axes[1].set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.1f}% variance)')
+    axes[1].grid(True, alpha=0.3)
+    plt.colorbar(scatter2, ax=axes[1], label='Digit')
+    
+    plt.suptitle(f'Exp {exp_id}: {training_type}_{sampling_type}_{loss_type} - PCA Distribution Comparison', 
+                 fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    filename = f'exp{exp_id:02d}_pca_comparison_{training_type}_{sampling_type}_{loss_type}.png'
+    filepath = os.path.join(IMAGES_DIR, filename)
+    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"  ✓ Saved PCA comparison: {filename}")
+    return filepath
+
+
+def save_models(model, inverse_model, exp_id, loss_type, sampling_type, training_type):
+    """
+    Save trained model(s) to disk
+    """
+    model_info = {
+        'experiment_id': exp_id,
+        'loss_type': loss_type,
+        'sampling_type': sampling_type,
+        'training_type': training_type,
+        'feature_dim': feature_dim,
+        'hidden_dim': hidden_dim,
+        'embedding_dim': embedding_dim,
+        'num_layers': num_layers,
+        'timesteps': timesteps
+    }
+    
+    # Save forward model
+    forward_filename = f'exp{exp_id:02d}_model_{training_type}_{sampling_type}_{loss_type}.pth'
+    forward_path = os.path.join(MODELS_DIR, forward_filename)
+    
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'model_info': model_info,
+        'model_type': 'forward' if inverse_model is not None else 'unified'
+    }, forward_path)
+    
+    print(f"  ✓ Saved model: {forward_filename}")
+    
+    # Save inverse model if it exists (implicit training)
+    if inverse_model is not None:
+        inverse_filename = f'exp{exp_id:02d}_inverse_model_{training_type}_{sampling_type}_{loss_type}.pth'
+        inverse_path = os.path.join(MODELS_DIR, inverse_filename)
+        
+        torch.save({
+            'model_state_dict': inverse_model.state_dict(),
+            'model_info': model_info,
+            'model_type': 'inverse'
+        }, inverse_path)
+        
+        print(f"  ✓ Saved inverse model: {inverse_filename}")
+        return forward_path, inverse_path
+    
+    return forward_path, None
+
 
 # =============================================================================
 # EXPERIMENT RUNNER
@@ -1537,26 +1730,190 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
         # Generate inverse samples (z=1: clean -> prime)
         if inverse_mask.sum() > 0:
             if training_type == 'implicit' and inverse_model_obj is not None:
-                # Use inverse model for implicit method
+                # IMPLICIT: Use dedicated inverse model
                 use_model = inverse_model_obj
-            else:
-                # Use single model for all other methods
+                
+                if sampling_type == 'convex':
+                    inverse_samples = diff_process.sample(
+                        use_model,
+                        shape=(inverse_mask.sum(), feature_dim),
+                        condition=test_input_tensor[inverse_mask],
+                        batch_labels=test_labels_tensor[inverse_mask]
+                    )
+                else:
+                    inverse_samples = diff_process.sample(
+                        use_model,
+                        shape=(inverse_mask.sum(), feature_dim),
+                        condition=test_input_tensor[inverse_mask]
+                    )
+                    
+            elif training_type == 'semi_implicit':
+                # SEMI-IMPLICIT: Use same model with z=1
                 use_model = model_obj
+                
+                if sampling_type == 'convex':
+                    inverse_samples = diff_process.sample(
+                        use_model,
+                        shape=(inverse_mask.sum(), feature_dim),
+                        condition=test_input_tensor[inverse_mask],
+                        batch_labels=test_labels_tensor[inverse_mask]
+                    )
+                else:
+                    inverse_samples = diff_process.sample(
+                        use_model,
+                        shape=(inverse_mask.sum(), feature_dim),
+                        condition=test_input_tensor[inverse_mask]
+                    )
+                    
+            elif training_type == 'semi_explicit':
+                # SEMI-EXPLICIT: Denoise clean samples, then apply SVD pseudo-inverse
+                clean_inputs = test_input_tensor[inverse_mask][:, :-1]  # Remove z-coordinate
+                
+                # Add noise and denoise to get denoised representation
+                t_test = torch.full((inverse_mask.sum(),), timesteps-1, device=device, dtype=torch.long)
+                noise_test = torch.randn_like(clean_inputs)
+                
+                # Create noisy version
+                noisy_test = clean_inputs + 0.1 * noise_test  # Small noise for stability
+                noisy_test_with_z = torch.cat([noisy_test, torch.zeros(noisy_test.shape[0], 1, device=device)], dim=1)
+                
+                # Denoise using forward model
+                predicted_noise = model_obj(noisy_test_with_z, t_test, noisy_test_with_z)
+                denoised = noisy_test_with_z - predicted_noise
+                
+                # Apply SVD pseudo-inverse using the trainer's method
+                trainer = SemiExplicitTrainer(model_obj, diff_process, None, device)
+                inverse_samples = trainer.apply_inverse_pass(denoised, model_obj)
+                
+            elif training_type == 'explicit':
+                # EXPLICIT: Denoise clean samples, then apply mathematical inversion
+                clean_inputs = test_input_tensor[inverse_mask][:, :-1]  # Remove z-coordinate
+                
+                # Add noise and denoise to get denoised representation
+                t_test = torch.full((inverse_mask.sum(),), timesteps-1, device=device, dtype=torch.long)
+                noise_test = torch.randn_like(clean_inputs)
+                
+                # Create noisy version
+                noisy_test = clean_inputs + 0.1 * noise_test  # Small noise for stability
+                noisy_test_with_z = torch.cat([noisy_test, torch.zeros(noisy_test.shape[0], 1, device=device)], dim=1)
+                
+                # Denoise using forward model
+                predicted_noise = model_obj(noisy_test_with_z, t_test, noisy_test_with_z)
+                denoised = noisy_test_with_z - predicted_noise
+                
+                # Apply explicit mathematical inversion using the trainer's method
+                trainer = ExplicitTrainer(model_obj, diff_process, None, device)
+                inverse_samples = trainer.apply_network_inverse(denoised, model_obj)
+            else:
+                inverse_samples = torch.zeros((inverse_mask.sum(), feature_dim), device=device)
+                
+            generated_samples[inverse_mask] = inverse_samples
+        
+        # =====================================================================
+        # ROUNDTRIP METRICS
+        # =====================================================================
+        # Compute roundtrip errors: forward->inverse->forward and inverse->forward->inverse
+        roundtrip_fi_mse = 0.0  # Forward -> Inverse -> Forward
+        roundtrip_if_mse = 0.0  # Inverse -> Forward -> Inverse
+        
+        # Use a subset for roundtrip testing (to save time)
+        n_roundtrip_samples = min(20, forward_mask.sum())
+        
+        if n_roundtrip_samples > 0:
+            # Forward -> Inverse -> Forward
+            # Start with clean samples, denoise them, invert, then denoise back
+            roundtrip_indices = torch.where(forward_mask)[0][:n_roundtrip_samples]
+            clean_samples = test_target_tensor[roundtrip_indices]
             
-            if sampling_type == 'convex':
-                inverse_samples = diff_process.sample(
-                    use_model,
-                    shape=(inverse_mask.sum(), feature_dim),
-                    condition=test_input_tensor[inverse_mask],
-                    batch_labels=test_labels_tensor[inverse_mask]
+            # Step 1: Denoise (should stay clean)
+            denoised_step1 = generated_samples[roundtrip_indices]
+            
+            # Step 2: Apply inverse transformation
+            if training_type == 'semi_explicit':
+                trainer = SemiExplicitTrainer(model_obj, diff_process, None, device)
+                inverted = trainer.apply_inverse_pass(denoised_step1, model_obj)
+            elif training_type == 'explicit':
+                trainer = ExplicitTrainer(model_obj, diff_process, None, device)
+                inverted = trainer.apply_network_inverse(denoised_step1, model_obj)
+            elif training_type == 'semi_implicit':
+                # For semi-implicit, change z coordinate and sample
+                inverted_cond = denoised_step1.clone()
+                inverted_cond[:, -1] = 1
+                inverted = diff_process.sample(
+                    model_obj, 
+                    shape=(n_roundtrip_samples, feature_dim),
+                    condition=inverted_cond
+                )
+            elif training_type == 'implicit' and inverse_model_obj is not None:
+                inverted = diff_process.sample(
+                    inverse_model_obj,
+                    shape=(n_roundtrip_samples, feature_dim),
+                    condition=denoised_step1
                 )
             else:
-                inverse_samples = diff_process.sample(
-                    use_model,
-                    shape=(inverse_mask.sum(), feature_dim),
-                    condition=test_input_tensor[inverse_mask]
+                inverted = denoised_step1
+            
+            # Step 3: Denoise back to clean
+            # Use forward model to denoise the inverted samples
+            t_rt = torch.full((n_roundtrip_samples,), timesteps//2, device=device, dtype=torch.long)
+            noise_rt = torch.randn_like(inverted)
+            noisy_rt = diff_process.q_sample(inverted, t_rt, noise_rt)
+            
+            if training_type == 'implicit' and inverse_model_obj is not None:
+                use_model = model_obj
+            else:
+                use_model = model_obj
+                
+            predicted_noise_rt = use_model(noisy_rt, t_rt, noisy_rt)
+            roundtrip_back = diff_process.predict_start_from_noise(noisy_rt, t_rt, predicted_noise_rt)
+            
+            # Compute roundtrip error
+            roundtrip_fi_mse = F.mse_loss(roundtrip_back, clean_samples).item()
+        
+        # Inverse -> Forward -> Inverse (if we have inverse samples)
+        n_inverse_roundtrip = min(20, inverse_mask.sum())
+        if n_inverse_roundtrip > 0:
+            roundtrip_inv_indices = torch.where(inverse_mask)[0][:n_inverse_roundtrip]
+            clean_samples_inv = test_input_tensor[roundtrip_inv_indices][:, :-1]  # Original clean
+            prime_targets = test_target_tensor[roundtrip_inv_indices]  # Target prime inverse
+            
+            # Step 1: Get the generated inverse samples
+            generated_prime = generated_samples[roundtrip_inv_indices]
+            
+            # Step 2: Apply forward (denoise)
+            t_rt_inv = torch.full((n_inverse_roundtrip,), timesteps//2, device=device, dtype=torch.long)
+            noise_rt_inv = torch.randn_like(generated_prime)
+            noisy_rt_inv = diff_process.q_sample(generated_prime, t_rt_inv, noise_rt_inv)
+            
+            predicted_noise_rt_inv = model_obj(noisy_rt_inv, t_rt_inv, noisy_rt_inv)
+            denoised_inv = diff_process.predict_start_from_noise(noisy_rt_inv, t_rt_inv, predicted_noise_rt_inv)
+            
+            # Step 3: Apply inverse again
+            if training_type == 'semi_explicit':
+                trainer = SemiExplicitTrainer(model_obj, diff_process, None, device)
+                roundtrip_prime = trainer.apply_inverse_pass(denoised_inv, model_obj)
+            elif training_type == 'explicit':
+                trainer = ExplicitTrainer(model_obj, diff_process, None, device)
+                roundtrip_prime = trainer.apply_network_inverse(denoised_inv, model_obj)
+            elif training_type == 'semi_implicit':
+                inverted_cond_inv = denoised_inv.clone()
+                inverted_cond_inv[:, -1] = 1
+                roundtrip_prime = diff_process.sample(
+                    model_obj,
+                    shape=(n_inverse_roundtrip, feature_dim),
+                    condition=inverted_cond_inv
                 )
-            generated_samples[inverse_mask] = inverse_samples
+            elif training_type == 'implicit' and inverse_model_obj is not None:
+                roundtrip_prime = diff_process.sample(
+                    inverse_model_obj,
+                    shape=(n_inverse_roundtrip, feature_dim),
+                    condition=denoised_inv
+                )
+            else:
+                roundtrip_prime = denoised_inv
+            
+            # Compute roundtrip error
+            roundtrip_if_mse = F.mse_loss(roundtrip_prime, prime_targets).item()
         
         # Calculate overall metrics (combined forward + inverse)
         mse = F.mse_loss(generated_samples, test_target_tensor).item()
@@ -1567,24 +1924,49 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
         # Mean absolute error
         mae = np.mean(np.abs(gen_np - target_np))
         
-        # Distribution similarity metrics
-        kl_div = compute_kl_divergence_loss(generated_samples, test_target_tensor).item()
-        fid_score = compute_fid_score(test_target_tensor, generated_samples).item()
+        # Distribution similarity metrics - COMPUTED PER-DIGIT
+        # This avoids mixing distributions across different digit classes
+        kl_div = compute_per_digit_kl_divergence(generated_samples, test_target_tensor, test_labels_tensor).item()
+        fid_score = compute_per_digit_fid(test_target_tensor, generated_samples, test_labels_tensor).item()
         
         # Calculate metrics separately for forward and inverse directions
         if forward_mask.sum() > 0:
             forward_mse = F.mse_loss(generated_samples[forward_mask], test_target_tensor[forward_mask]).item()
-            forward_fid = compute_fid_score(test_target_tensor[forward_mask], generated_samples[forward_mask]).item()
+            # Per-digit FID for forward direction only
+            forward_fid = compute_per_digit_fid(
+                test_target_tensor[forward_mask], 
+                generated_samples[forward_mask],
+                test_labels_tensor[forward_mask]
+            ).item()
+            # Per-digit KL for forward direction only
+            forward_kl = compute_per_digit_kl_divergence(
+                generated_samples[forward_mask],
+                test_target_tensor[forward_mask],
+                test_labels_tensor[forward_mask]
+            ).item()
         else:
             forward_mse = 0.0
             forward_fid = 0.0
+            forward_kl = 0.0
             
         if inverse_mask.sum() > 0:
             inverse_mse = F.mse_loss(generated_samples[inverse_mask], test_target_tensor[inverse_mask]).item()
-            inverse_fid = compute_fid_score(test_target_tensor[inverse_mask], generated_samples[inverse_mask]).item()
+            # Per-digit FID for inverse direction only
+            inverse_fid = compute_per_digit_fid(
+                test_target_tensor[inverse_mask], 
+                generated_samples[inverse_mask],
+                test_labels_tensor[inverse_mask]
+            ).item()
+            # Per-digit KL for inverse direction only
+            inverse_kl = compute_per_digit_kl_divergence(
+                generated_samples[inverse_mask],
+                test_target_tensor[inverse_mask],
+                test_labels_tensor[inverse_mask]
+            ).item()
         else:
             inverse_mse = 0.0
             inverse_fid = 0.0
+            inverse_kl = 0.0
     
     runtime = time.time() - start_time
     
@@ -1600,12 +1982,16 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
         'final_training_loss': loss_history[-1],
         'test_mse': mse,
         'test_mae': mae,
-        'test_kl_divergence': kl_div,
-        'test_fid_score': fid_score,
+        'test_kl_divergence': kl_div,  # Per-digit mean
+        'test_fid_score': fid_score,    # Per-digit mean
         'test_forward_mse': forward_mse,
-        'test_forward_fid': forward_fid,
+        'test_forward_fid': forward_fid,  # Per-digit mean for forward
+        'test_forward_kl': forward_kl,    # Per-digit mean for forward
         'test_inverse_mse': inverse_mse,
-        'test_inverse_fid': inverse_fid,
+        'test_inverse_fid': inverse_fid,  # Per-digit mean for inverse
+        'test_inverse_kl': inverse_kl,    # Per-digit mean for inverse
+        'test_roundtrip_fi_mse': roundtrip_fi_mse,  # Forward->Inverse->Forward
+        'test_roundtrip_if_mse': roundtrip_if_mse,  # Inverse->Forward->Inverse
         'runtime_seconds': runtime,
         'epochs': max_epochs,
         'convergence_rate': (loss_history[0] - loss_history[-1]) / max_epochs if len(loss_history) > 0 else 0
@@ -1619,8 +2005,12 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
         "test_fid_score": fid_score,
         "test_forward_mse": forward_mse,
         "test_forward_fid": forward_fid,
+        "test_forward_kl": forward_kl,
         "test_inverse_mse": inverse_mse,
         "test_inverse_fid": inverse_fid,
+        "test_inverse_kl": inverse_kl,
+        "test_roundtrip_fi_mse": roundtrip_fi_mse,
+        "test_roundtrip_if_mse": roundtrip_if_mse,
         "runtime_seconds": runtime
     })
     
@@ -1628,10 +2018,56 @@ def run_single_experiment(loss_type, sampling_type, training_type, exp_id):
     print(f"  Parameters: {total_params:,}")
     print(f"  Test MSE: {mse:.6f}")
     print(f"  Test MAE: {mae:.6f}")
-    print(f"  Test KL Divergence: {kl_div:.6f}")
+    print(f"  Test KL Divergence (per-digit mean): {kl_div:.6f}")
+    print(f"  Test FID Score (per-digit mean): {fid_score:.6f}")
     print(f"  Test Forward MSE: {forward_mse:.6f}")
+    print(f"  Test Forward FID (per-digit): {forward_fid:.6f}")
+    print(f"  Test Forward KL (per-digit): {forward_kl:.6f}")
     print(f"  Test Inverse MSE: {inverse_mse:.6f}")
+    print(f"  Test Inverse FID (per-digit): {inverse_fid:.6f}")
+    print(f"  Test Inverse KL (per-digit): {inverse_kl:.6f}")
+    print(f"  Test Roundtrip F->I->F MSE: {roundtrip_fi_mse:.6f}")
+    print(f"  Test Roundtrip I->F->I MSE: {roundtrip_if_mse:.6f}")
     print(f"  Runtime: {runtime:.1f}s")
+    
+    # ==========================================================================
+    # SAVE MODELS AND GENERATE VISUALIZATIONS
+    # ==========================================================================
+    print(f"\nGenerating visualizations and saving models...")
+    
+    # 1. Save trained models
+    forward_model_path, inverse_model_path = save_models(
+        model_obj, inverse_model_obj, exp_id, loss_type, sampling_type, training_type
+    )
+    result['forward_model_path'] = forward_model_path
+    result['inverse_model_path'] = inverse_model_path
+    
+    # 2. Generate and plot digit samples
+    digit_samples = generate_digit_samples(
+        model_obj, inverse_model_obj, diff_process, sampling_type, training_type, device, feature_dim
+    )
+    digit_samples_path = plot_digit_samples(
+        digit_samples, exp_id, loss_type, sampling_type, training_type
+    )
+    result['digit_samples_plot'] = digit_samples_path
+    
+    # 3. Generate PCA comparison plot
+    pca_plot_path = plot_pca_comparison(
+        test_target_tensor.cpu().numpy(),
+        generated_samples.cpu().numpy(),
+        test_labels_tensor.cpu().numpy(),
+        exp_id, loss_type, sampling_type, training_type
+    )
+    result['pca_comparison_plot'] = pca_plot_path
+    
+    # Upload images to wandb
+    print(f"\nUploading visualizations to Weights & Biases...")
+    wandb.log({
+        "forward_model_path": forward_model_path,
+        "digit_samples": wandb.Image(digit_samples_path, caption=f"Exp {exp_id}: Generated samples per digit"),
+        "pca_comparison": wandb.Image(pca_plot_path, caption=f"Exp {exp_id}: PCA distribution comparison")
+    })
+    print(f"  ✓ Uploaded images to wandb")
     
     # Finish wandb run
     wandb_run.finish()

@@ -2,18 +2,18 @@
 %% This is file `sample-sigconf.tex',
 %% generated with the docstrip utility.
 %%
-%% The original source files were:
+%% The source files were:
 %%
-%% samples.dtx  (with options: `all,proceedings,bibtex,sigconf')
+%% samples.dtx  (with options: `all, proceedings,bibtex,sigconf')
 %% 
 %% IMPORTANT NOTICE:
 %% 
-%% For the copyright see the source file.
+%% For the copyright, see the source file.
 %% 
 %% Any modified versions of this file must be renamed
 %% with new filenames distinct from sample-sigconf.tex.
 %% 
-%% For distribution of the original source see the terms
+%% For distribution of the original source, see the terms
 %% for copying and modification in the file samples.dtx.
 %% 
 %% This generated file may be distributed as long as the
@@ -36,10 +36,10 @@
 %% The first command in your LaTeX source must be the \documentclass
 %% command.
 %%
-%% For submission and review of your manuscript please change the
+%% For submission and review of your manuscript, please change the
 %% command to \documentclass[manuscript, screen, review]{acmart}.
 %%
-%% When submitting camera ready or to TAPS, please change the command
+%% When submitting camera-ready or to TAPS, please change the command
 %% to \documentclass[sigconf]{acmart} or whichever template is required
 %% for your publication.
 %%
@@ -86,8 +86,8 @@
 %% files in BibTeX format.
 %%
 %% You can then either use BibTeX with the ACM-Reference-Format style,
-%% or BibLaTeX with the acmnumeric or acmauthoryear sytles, that include
-%% support for advanced citation of software artefact from the
+%% or BibLaTeX with the acmnumeric or acmauthoryear styles, that include
+%% support for advanced citation of software artifact from the
 %% biblatex-software package, also separately available on CTAN.
 %%
 %% Look at the sample-*-biblatex.tex files for templates showcasing
@@ -200,15 +200,15 @@
 %\email{jpkumquat@consortium.net}
 
 %%
-%% By default, the full list of authors will be used in the page
-%% headers. Often, this list is too long, and will overlap
+%% By default, the full list of authors will be used on the page
+%% headers. Often, this list is too long and will overlap
 %% other information printed in the page headers. This command allows
 %% the author to define a more concise list
 %% of authors' names for this purpose.
 \renewcommand{\shortauthors}{KJ. Metzler et al.}
 
 %%
-%% The abstract is a short summary of the work to be presented in the
+%% The abstract is a summary of the work to be presented in the
 %% article.
 \begin{abstract}
 The emergence of DALL-E in 2021 revolutionized generative modeling by employing large-scale transformers to excel in text-to-image synthesis, outperforming GANs in detail and versatility. Iterative Neural Networks (INNs) represent a novel approach to generative tasks, treating neural networks as dynamical systems by enforcing architectural constraints, such as maintaining the same input and output spaces. Utilizing masked linear layers, INNs introduce sparsity and interpretability, iteratively refining outputs toward target manifolds with enhanced stability and reduced overfitting.
@@ -243,7 +243,7 @@ To validate our approaches, mass spectrometry data from 50 chemicals and MNIST1D
 %  \includegraphics[width=\textwidth]{sampleteaser}
 %  \caption{Seattle Mariners at Spring Training, 2010.}
 %  \Description{Enjoying the baseball game from the third-base
-%  seats. Ichiro Suzuki preparing to bat.}
+%  seats. Ichiro Suzuki is preparing to bat.}
 %  \label{fig:teaser}
 %\end{teaserfigure}
 
@@ -260,9 +260,9 @@ To validate our approaches, mass spectrometry data from 50 chemicals and MNIST1D
 
 In data-driven scientific research, the availability of high-quality data often determines the success of analytical and predictive models. However, many domains, such as ion mobility spectrometry (IMS) and mass spectrometry (MS), operate in low-data environments where acquiring sufficient data is challenging due to the cost, complexity, or time required for experiments. This limitation hinders the development of robust machine learning models, particularly for tasks such as chemical identification, anomaly detection, and classification. Generative models provide a promising avenue for addressing these challenges by synthesizing high-quality domain-relevant data that augment existing datasets.\cite{Vadakedath2022MS}
 
-Traditional generative architectures, such as Generative Adversarial Networks (GANs) and Variational Autoencoders (VAEs), have shown promise in data augmentation tasks but often struggle in low-data environments. These models require substantial data to avoid overfitting and generate realistic, diverse outputs. Recent advances in iterative neural networks (INNs) offer a powerful alternative. Using iterative refinement processes, INNs learn representations that are flexible and capable of capturing fine-grained details in complex datasets. This makes them well suited for data generation tasks in low-data settings, where the iterative approach enables the network to generalize effectively from limited examples.\cite{hershey2024rethinking}
+Traditional generative architectures, such as Generative Adversarial Networks (GANs) and Variational Autoencoders (VAEs), have shown promise in data augmentation tasks but often struggle in low-data environments. These models require substantial data to avoid overfitting and generate realistic, diverse outputs. Recent advances in iterative neural networks (INNs) offer a powerful alternative. Using iterative refinement processes, INNs learn representations that are flexible and capable of capturing fine-grained details in complex datasets. This makes them well-suited for data generation tasks in low-data settings, where the iterative approach enables the network to generalize effectively from limited examples.\cite{hershey2024rethinking}
 
-To evaluate the utility of INNs for data generation, we focused on three datasets: ion mobility spectra, mass spectra, and the MNIST dataset. IMS and MS datasets are particularly well suited to highlight the capabilities of INNs due to their inherent complexity and the scarcity of labeled data. MNIST, a widely used benchmark data set in generative modeling, serves as a baseline to validate our approach against existing methods. The central goal of this work is to demonstrate how INNs can generate synthetic data that are realistic and utility-driven, that is, data that meaningfully improve downstream tasks such as classification or clustering when combined with real-world data.\cite{Vadakedath2022MS}
+To evaluate the utility of INNs for data generation, we focused on three datasets: ion mobility spectra, mass spectra, and the MNIST dataset. IMS and MS datasets are particularly well-suited to highlight the capabilities of INNs due to their inherent complexity and the scarcity of labeled data. MNIST, a widely used benchmark data set in generative modeling, serves as a baseline to validate our approach against existing methods. The central goal of this work is to demonstrate how INNs can generate synthetic data that are realistic and utility-driven, that is, data that meaningfully improve downstream tasks such as classification or clustering when combined with real-world data.\cite{Vadakedath2022MS}
 
 Unlike traditional neural networks, iterative neural networks refine their outputs through multiple iterations, effectively incorporating feedback from intermediate steps. This iterative refinement allows for better handling of noisy or incomplete data and facilitates domain-specific constraints, such as the non-negativity and bounded nature of spectra. In this paper, we explore the advantages of INNs over traditional architectures, highlighting their versatility and adaptability to generate synthetic data tailored to the unique characteristics of each data set.\cite{hershey2024rethinking}
 
@@ -296,9 +296,9 @@ Iterative Neural Networks, as the name implies, are neural networks that we trea
     \sigma (Wx_1 + b) &= x_2
 \end{align*}
 
-This is not to be confused with Recurrent Neural Networks (RNNs) as we are not passing a hidden state to the next recurrent unit along with a new input, but the whole output tensor.
+This is not to be confused with Recurrent Neural Networks (RNNs), as we are not passing a hidden state to the next recurrent unit along with a new input, but the whole output tensor.
 
-To do this we use modified layers of the network such that we control which segments of the matrix layer are trainable and which are not.
+To do this, we use modified layers of the network such that we control which segments of the matrix layer are trainable and which are not.
 
 \begin{figure}[h]
   \centering
@@ -321,13 +321,13 @@ From a dynamical systems perspective, masked layers emulate discretized flows, w
 
 %One of the main issues with the DALL-E approach is a lack of insight into the hidden layers of the model. Because of the typical neural network setup, each hidden layer can exist in any space so long as it is useful for the model to get to its final prediction of what the generated data should look like. This black-box structure prevents us from visualizing the convergence of the input towards the output.
 
-%Our proposed solution to this is to use INNs to force the input, each intermediate state, and the output to all be within the same space. The input and output space are required to be the same so that we can feed the output back into the network as the new input. Meanwhile, the intermediate states are no longer hidden. They are the intermediate outputs from our Dynamical System such that the distance, however we choose to define it, is reduced with each step of the network. \cite{hershey2024rethinking} 
+%Our proposed solution to this is to use INNs to force the input, each intermediate state, and the output to all be within the same space. The input and output spaces are required to be the same so that we can feed the output back into the network as the new input. Meanwhile, the intermediate states are no longer hidden. They are the intermediate outputs from our Dynamical System such that the distance, however we choose to define it, is reduced with each step of the network. \cite{hershey2024rethinking} 
 
 %This approach aims to force the network to bring input that is far from the “attracting manifold” close to it, and inputs that are nearby to stay nearby.
 
 \subsection{INN Loss Functions}
 
-Ho et al., in their 2020 paper on diffusion models, found that they generally struggle to diffuse data that doesn’t have enough noise because it is already too close to the idealistic “attracting manifold.” Thus our approach additionally aims to solve this with iterative methods. Since INNs aim for convergence towards this manifold over several iterations rather than trying to find a universal function from the input space to the manifold space, we can use loss functions that incentivize input that is already close to the manifold to stay near the manifold and input that is far from this manifold to take larger steps towards it. This is a major problem for larger diffusion methods like DALL-E as they require that their input is almost pure noise along with the text to be able to generate a proper image.\cite{ho2020denoising}\cite{ramesh2021zero}
+Ho et al., in their 2020 paper on diffusion models, found that they generally struggle to diffuse data that doesn’t have enough noise because it is already too close to the idealistic “attracting manifold.” Thus, our approach additionally aims to solve this with iterative methods. Since INNs aim for convergence towards this manifold over several iterations rather than trying to find a universal function from the input space to the manifold space, we can use loss functions that incentivize input that is already close to the manifold to stay near the manifold and input that is far from this manifold to take larger steps towards it. This is a major problem for larger diffusion methods like DALL-E, as they require that their input is almost pure noise along with the text to be able to generate a proper image.\cite{ho2020denoising}\cite{ramesh2021zero}
 
 \begin{figure}[h]
     \centering
@@ -345,13 +345,13 @@ For our INNs, we will use the following schema to train our model:
 Where $l(x_i, x_t)$ is the loss from iteration $i$ compared to the target data point, $x_t$, that we diffused to create the initial input.
 
 \section{Decoupled Autoencoders}
-% I wasn't sure how to reference my ICMLA paper since you aren't on it? I figured, "our previous work" could still be appropriate since both Randy and I are on that paper? Feel free to change as you see fit though. 
+% I wasn't sure how to reference my ICMLA paper since you aren't on it? I figured, "our previous work" could still be appropriate since both Randy and I are on that paper? Feel free to change as you see fit, though. 
 As an additional point of comparison, we utilize the decoupled autoencoder structure introduced in \textcolor{blue}{our previous work} \cite{dunham2024oracle}. 
 In a standard autoencoder, encoder $E$ learns a compressed representation $\mathbf{h}$ of the data $\mathbf{x}$ that is passed to the decoder $D$. The model aims to minimize
 $$\| \mathbf{x} - D(E( \mathbf{x} ))\| \; \text{or} \; \| \mathbf{x} - D(\mathbf{h})\|,$$ 
 the difference between the input data and the model's output.
 
-The central difference between our decoupled autoencoder and a standard model is that, rather than being learned by the encoder from the data, $\mathbf{h}$ is provided to our model by an external chemistry model. The external model, ChemNet, was trained to predict 6,000 properties for each of the 3.6 million chemical structures in its dataset \cite{preuer2019frechet}. Due to the size of its training data and complexity of its training task, the chemical embeddings ChemNet creates contain a wealth of chemistry information that would not be attainable from the small datasets we work with. 
+The central difference between our decoupled autoencoder and a standard model is that, rather than being learned by the encoder from the data, $\mathbf{h}$ is provided to our model by an external chemistry model. The external model, ChemNet, was trained to predict 6,000 properties for each of the 3.6 million chemical structures in its dataset \cite{preuer2019frechet}. Due to the size of its training data and the complexity of its training task, the chemical embeddings ChemNet creates contain a wealth of chemistry information that would not be attainable from the small datasets we work with. 
 
 For a chemical $c$, we determine $c$'s ChemNet embedding, a $512$-dimensional vector $\mathbf{h}_c \in \mathbb{R}^{512}$. We train an encoder to map sensor data for chemical $c$, $\mathbf{x}_c$, to $\mathbf{h}_c$, minimizing
 \begin{equation}
@@ -394,7 +394,7 @@ According to Vadakedath et al. (2022), MS’s versatility lies in its ability to
 \subsection{Ion Mobility Spectrometry}
 Another common analytical technique in chemistry is ion mobility spectrometry (IMS), which examines how ions separate based on their velocity in an electric field \cite{hill1990ion}. Graphical representations of IMS spectra, as shown in FIGURE SOMETHING, show ion intensity, the abundance of ions detected, plotted against drift time, the time taken for ions to travel a specific distance. IMS data can be used alone or in conjunction with mass spectrometry spectra to study and identify analytes \cite{dodds2019ion}. 
 
-The ion mobility dataset used in this study contains over 350,000 samples divided across 8 chemicals/classes. An imbalance between the classes was observed, with samples from the majority class being 13 times more abundant than those from the minority class, but was not adjusted as part of this study. 
+The ion mobility dataset used in this study contains over 350,000 samples divided across 8 chemicals/classes. An imbalance between the classes was observed, with samples from the majority class being 13 times more abundant than those from the minority class, but this was not adjusted as part of this study. 
 
 Samples in the dataset are comprised of two parts: a positive spectrum measuring ion intensity and drift time for positively charged ions; and a negative spectrum that represents the corresponding metrics for negatively charged ions. Each sample consists of 837 drift times for each the positive and the negative spectrum, resulting in a total of 1,674 features ($837$ drift times $\times 2$ spectra).
 
@@ -433,7 +433,7 @@ Multiple diffusions are performed on the same spectra using increasing noise lev
         \tilde \alpha_m
     \end{bmatrix} = \tilde x_{\alpha, i}
 \end{equation}
-where $x_\alpha$ represents a real spectrum with mass-to-charge ratios $\alpha_{k,i}$ for $k = 1, 2, \dots, m$. For Gaussian diffusion, noise terms $\varepsilon_{k,i} \sim N(1, \frac{i+1}{2n})$ are sampled from a Gaussian distribution, with $n$ being the total number of diffusion steps and $i = 0, \dots, n$. For convex combinations, $\varepsilon$ represents the convex interpolation with another same-class sample.
+where $x_\alpha$ represents a real spectrum with mass-to-charge ratios $\alpha_{k,i}$ for $k = 1, 2, \dots, m$. For Gaussian diffusion, noise terms $\varepsilon_{k,i} \sim N(1, \frac{i+1}{2n})$ are sampled from a Gaussian distribution, with $n$ being the total number of diffusion steps and $i = 0, \dots, n$. For convex combinations, $\varepsilon$ represents the convex interpolation with another sample of the same class.
 
 \subsection{Bidirectional Training}
 
@@ -585,10 +585,10 @@ This section analyzes the classification results obtained from the synthetic dat
 The mass spectrometry dataset presented challenges due to its high complexity and limited sample size. Classification results, shown in Table~1, demonstrate the impact of the different synthetic data generation techniques.
 
 %\subsubsection{Macro Averages.}
-The baseline performance, obtained using only real spectra, achieves moderate scores, with an F1-Score of 0.65 and accuracy of 0.76. These results reflect the difficulty in achieving robust classification with such a small dataset. Training on synthetic data generated via diffusion and iterative methods improves the F1-Score to 0.72 and accuracy to 0.78. Convex combinations of real spectra further enhance performance, with an F1-Score of 0.76 and accuracy of 0.80. Interestingly, combining both treatments yields results (F1-Score: 0.74, accuracy: 0.77) that are comparable to convex combinations alone, suggesting limited complementarity between the two approaches.
+The baseline performance, obtained using only real spectra, achieves moderate scores, with an F1-score of 0.65 and an accuracy of 0.76. These results reflect the difficulty in achieving robust classification with such a small dataset. Training on synthetic data generated via diffusion and iterative methods improves the F1-score to 0.72 and accuracy to 0.78. Convex combinations of real spectra further enhance performance, with an F1-score of 0.76 and accuracy of 0.80. Interestingly, combining both treatments yields results (F1-Score: 0.74, accuracy: 0.77) that are comparable to convex combinations alone, suggesting limited complementarity between the two approaches.
 
 %\subsubsection{Weighted Averages.}
-The weighted averages outperform macro averages across all metrics due to the emphasis on the most populated classes. Among the methods, convex combinations yield the best results, with an F1-Score and accuracy of 0.80. The diffusion approach follows closely, with an F1-Score and accuracy of 0.78, while real spectra lag behind, emphasizing the importance of synthetic data augmentation.
+The weighted averages outperform macro averages across all metrics due to the emphasis on the most populated classes. Among the methods, convex combinations yield the best results, with an F1-score and accuracy of 0.80. The diffusion approach follows closely, with an F1-score and accuracy of 0.78, while real spectra lag, emphasizing the importance of synthetic data augmentation.
 
 %\subsubsection{Insights.}
 Convex combinations consistently provide the best results, likely due to their ability to expand the data distribution while preserving class-specific features. Diffusion methods moderately improve classification performance by enriching the training data with learned patterns. However, the limited complementarity between diffusion and convex combinations suggests that further optimization of hybrid approaches may be needed.
@@ -598,7 +598,7 @@ Convex combinations consistently provide the best results, likely due to their a
 The MNIST dataset, with its larger size and simpler structure, provides a contrasting case. Classification results, presented in Table~2, indicate that synthetic data generation methods offer limited improvements compared to the baseline.
 
 %\subsubsection{Macro Averages.}
-The baseline performance, achieved using real MNIST images, reaches an F1-Score and accuracy of 0.84. Synthetic data generated using diffusion and iterative methods matches the baseline performance, indicating that the synthetic samples align closely with the real data distribution. Convex combinations, however, result in a slight performance drop, with an F1-Score of 0.82 and accuracy of 0.82. Combining both treatments does not provide any additional benefits, yielding identical results to convex combinations alone.
+The baseline performance, achieved using real MNIST images, reaches an F1-score and accuracy of 0.84. Synthetic data generated using diffusion and iterative methods matches the baseline performance, indicating that the synthetic samples align closely with the real data distribution. Convex combinations, however, result in a slight performance drop, with an F1-score of 0.82 and an accuracy of 0.82. Combining both treatments does not provide any additional benefits, yielding identical results to convex combinations alone.
 
 %\subsubsection{Weighted Averages.}
 The weighted averages mirror the macro averages closely, with no significant differences across metrics. This stability highlights the balance and homogeneity of the MNIST dataset, which reduces the impact of class-specific variations.
@@ -644,11 +644,11 @@ The semi-implicit method uses a single model with a directional indicator ($z$-c
 \mathcal{L} = &\mathcal{L}_{\text{forward}} + \mathcal{L}_{\text{inverse}} \nonumber\\
 &+ \mathcal{L}_{\text{roundtrip-FI}} + \mathcal{L}_{\text{roundtrip-IF}}
 \end{align}
-where the roundtrip losses ensure that applying forward then inverse (or inverse then forward) returns to the starting point.
+where the round-trip losses ensure that applying forward, then inverse (or inverse then forward) returns to the starting point.
 
-\textbf{Advantages:} Parameter-efficient with built-in consistency through roundtrip constraints. Single model learns unified representation of data manifold.
+\textbf{Advantages:} Parameter-efficient with built-in consistency through round-trip constraints. A single model learns a unified representation of the data manifold.
 
-\textbf{Disadvantages:} Conditional architecture may limit specialization compared to separate models. Roundtrip losses add computational complexity during training.
+\textbf{Disadvantages:} Conditional architecture may limit specialization compared to separate models. Round-trip losses add computational complexity during training.
 
 \subsection{Semi-Explicit Inversion via SVD}
 
@@ -660,13 +660,13 @@ where $W = U\Sigma V^T$ is the SVD decomposition and $\Sigma^{-1}$ inverts the s
 
 \textbf{Architecture:} Single forward model with SVD-computed inverse transformations.
 
-\textbf{Training:} Forward model trains normally. Inverse transformations computed on-demand by:
+\textbf{Training:} Forward model trains normally. Inverse transformations computed on demand by:
 \begin{equation}
 x_{\text{inv}} = W^+(y - b)
 \end{equation}
 for each linear layer.
 
-\textbf{Advantages:} Mathematically principled with no additional parameters for inversion. Guarantees best linear approximation in least-squares sense.
+\textbf{Advantages:} Mathematically principled with no additional parameters for inversion. Guarantees the best linear approximation in the least-squares sense.
 
 \textbf{Disadvantages:} Limited to linear transformations; nonlinearities must be approximated. Computational cost of SVD for large matrices.
 
@@ -765,11 +765,11 @@ Same-Class Convex & -- & -- \\
 
 \textbf{Expected Findings:}
 
-\textit{Inversion Methods:} We hypothesize that semi-implicit training will achieve the best bidirectional consistency due to roundtrip losses enforcing self-consistency. Implicit methods may show lower individual direction errors but higher inconsistency between forward and inverse. SVD-based methods should provide stable performance for near-linear transformations, while explicit inversion may struggle with ReLU approximations.
+\textit{Inversion Methods:} We hypothesize that semi-implicit training will achieve the best bidirectional consistency due to round-trip losses enforcing self-consistency. Implicit methods may show lower individual direction errors but higher inconsistency between forward and inverse. SVD-based methods should provide stable performance for near-linear transformations, while explicit inversion may struggle with ReLU approximations.
 
 \textit{Sampling Methods:} Same-class convex combinations are expected to better preserve digit structure compared to Gaussian noise, particularly for inverse transformations where maintaining semantic coherence is critical.
 
-\textit{Loss Functions:} FID may better capture perceptual quality of generated samples, while KL divergence directly measures distribution matching.
+\textit{Loss Functions:} FID may better capture the perceptual quality of generated samples, while the KL divergence directly measures distribution matching.
 
 \section{Conclusion}
 
