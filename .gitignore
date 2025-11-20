@@ -139,3 +139,6 @@ slurm-*.out
 *.npy
 *.md
 *.pth
+*.feather
+*.png
+*.csv
