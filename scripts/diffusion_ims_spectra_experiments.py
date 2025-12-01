@@ -3,8 +3,8 @@ Diffusion Model for IMS Spectra Generation and Classification
 ==============================================================
 
 Semi-Implicit Training with Dual Objectives:
-- z=0: Generation - Input: [noisy_IMS + clean_onehot] → Output: [clean_IMS + clean_onehot]
-- z=1: Classification - Input: [clean_IMS + noisy_onehot] → Output: [clean_IMS + clean_onehot]
+- z=0: Generation - Input: [noisy_IMS + clean_onehot] -> Output: [clean_IMS + clean_onehot]
+- z=1: Classification - Input: [clean_IMS + noisy_onehot] -> Output: [clean_IMS + clean_onehot]
 
 Dataset: IMS Spectra with 8 chemical classes
 - Positive mode: 838 features (p_184 to p_1021)
@@ -58,16 +58,21 @@ print(f"Using device: {device}")
 # =============================================================================
 # HYPERPARAMETERS
 # =============================================================================
-timesteps = 100
+timesteps = 10
 beta_start = 0.0001
 beta_end = 0.02
 hidden_dim = 256
 embedding_dim = 128
 num_layers = 4
 learning_rate = 1e-4
-max_epochs = 300
+max_epochs = 1000
 batch_size = 256
 test_mode = '--test' in sys.argv  # Quick test with reduced data
+
+# PCA preprocessing options (for regularization)
+use_pca_preprocessing = '--pca' in sys.argv  # Enable PCA regularization
+pca_components = 100  # Number of PCA components (if enabled)
+pca_variance_threshold = 0.95  # Or use variance threshold instead
 
 # Loss weights (generation weighted more than classification)
 generation_weight = 0.9  # Weight for IMS reconstruction (prioritized)
@@ -84,6 +89,10 @@ print(f"  Batch size: {batch_size}")
 print(f"  Generation weight: {generation_weight}")
 print(f"  Classification weight: {classification_weight}")
 print(f"  Test mode: {test_mode}")
+print(f"  PCA preprocessing: {use_pca_preprocessing}")
+if use_pca_preprocessing:
+    print(f"  PCA components: {pca_components}")
+    print(f"  PCA variance threshold: {pca_variance_threshold}")
 
 # =============================================================================
 # DATA LOADING
@@ -124,8 +133,17 @@ def load_smile_embeddings():
     
     return label_embeddings
 
-def load_ims_data():
-    """Load IMS spectra data from feather files"""
+def load_ims_data(use_pca=False, n_components=100, variance_threshold=0.95):
+    """Load IMS spectra data from feather files
+    
+    Args:
+        use_pca: If True, apply PCA preprocessing to IMS features for regularization
+        n_components: Number of PCA components (if n_components < 1, use variance_threshold instead)
+        variance_threshold: Retain components explaining this fraction of variance
+    
+    Returns:
+        Dictionary with data and optional PCA transform for inverse transformation
+    """
     print("\nLoading IMS spectra data...")
     
     train_path = os.path.join(DATA_DIR, 'train_data.feather')
@@ -159,6 +177,42 @@ def load_ims_data():
         test_df[n_cols].values
     ], axis=1)
     
+    # Normalize IMS data BEFORE PCA (important for PCA to work well)
+    ims_mean = train_ims.mean(axis=0)
+    ims_std = train_ims.std(axis=0) + 1e-8
+    
+    train_ims_norm = (train_ims - ims_mean) / ims_std
+    test_ims_norm = (test_ims - ims_mean) / ims_std
+    
+    # Original dimensions
+    original_ims_dim = train_ims_norm.shape[1]
+    
+    # Optional PCA preprocessing for regularization
+    pca_transform = None
+    if use_pca:
+        print(f"\n  Applying PCA preprocessing for regularization...")
+        
+        # Determine number of components
+        if n_components >= 1:
+            actual_n_components = min(n_components, original_ims_dim, len(train_ims_norm))
+            pca_transform = PCA(n_components=actual_n_components)
+        else:
+            # Use variance threshold
+            pca_transform = PCA(n_components=variance_threshold)
+        
+        # Fit PCA on training data
+        train_ims_pca = pca_transform.fit_transform(train_ims_norm)
+        test_ims_pca = pca_transform.transform(test_ims_norm)
+        
+        print(f"  Original IMS dimension: {original_ims_dim}")
+        print(f"  PCA components retained: {pca_transform.n_components_}")
+        print(f"  Variance explained: {pca_transform.explained_variance_ratio_.sum()*100:.2f}%")
+        print(f"  Compression ratio: {original_ims_dim / pca_transform.n_components_:.2f}x")
+        
+        # Use PCA-transformed data
+        train_ims_norm = train_ims_pca
+        test_ims_norm = test_ims_pca
+    
     # Load SMILE embeddings
     smile_embeddings = load_smile_embeddings()
     embedding_dim = len(next(iter(smile_embeddings.values())))
@@ -186,14 +240,11 @@ def load_ims_data():
     print(f"  Train embeddings shape: {train_embeddings.shape}")
     print(f"  Test embeddings shape: {test_embeddings.shape}")
     
-    # Normalize IMS data
-    ims_mean = train_ims.mean(axis=0)
-    ims_std = train_ims.std(axis=0) + 1e-8
+    # Final feature dimension (may be reduced if PCA is used)
+    num_ims_features = train_ims_norm.shape[1]
     
-    train_ims_norm = (train_ims - ims_mean) / ims_std
-    test_ims_norm = (test_ims - ims_mean) / ims_std
-    
-    print(f"\nNormalized IMS statistics:")
+    print(f"\nFinal IMS data statistics:")
+    print(f"  Feature dimension: {num_ims_features} {'(PCA reduced)' if use_pca else '(original)'}")
     print(f"  Train mean: {train_ims_norm.mean():.4f}, std: {train_ims_norm.std():.4f}")
     print(f"  Train range: [{train_ims_norm.min():.2f}, {train_ims_norm.max():.2f}]")
     
@@ -207,9 +258,12 @@ def load_ims_data():
         'ims_mean': ims_mean,
         'ims_std': ims_std,
         'class_names': onehot_cols,
-        'num_ims_features': len(p_cols) + len(n_cols),
+        'num_ims_features': num_ims_features,
+        'original_ims_dim': original_ims_dim,
         'num_embedding_dim': embedding_dim,
-        'smile_embeddings': smile_embeddings
+        'smile_embeddings': smile_embeddings,
+        'pca_transform': pca_transform,  # Store for inverse transform during generation
+        'use_pca': use_pca
     }
 
 
@@ -218,8 +272,8 @@ def prepare_diffusion_data(data, n_samples=None):
     Prepare data for semi-implicit diffusion training
     
     Two training modes:
-    - z=0 (Generation): [noisy_IMS + clean_embedding] → [clean_IMS + clean_embedding]
-    - z=1 (Classification): [clean_IMS + noisy_embedding] → [clean_IMS + clean_embedding]
+    - z=0 (Generation): [noisy_IMS + clean_embedding] -> [clean_IMS + clean_embedding]
+    - z=1 (Classification): [clean_IMS + noisy_embedding] -> [clean_IMS + clean_embedding]
     """
     print("\nPreparing data for semi-implicit diffusion...")
     
@@ -235,14 +289,14 @@ def prepare_diffusion_data(data, n_samples=None):
     
     n_per_mode = len(train_ims)
     
-    # Mode 0: Generation (noisy IMS + clean embedding → clean IMS + clean embedding)
+    # Mode 0: Generation (noisy IMS + clean embedding -> clean IMS + clean embedding)
     gen_inputs_ims = train_ims.copy()  # Will be noised during training
     gen_inputs_embedding = train_embeddings.copy()
     gen_targets_ims = train_ims.copy()
     gen_targets_embedding = train_embeddings.copy()
     gen_z = np.zeros((n_per_mode, 1))
     
-    # Mode 1: Classification (clean IMS + noisy embedding → clean IMS + clean embedding)
+    # Mode 1: Classification (clean IMS + noisy embedding -> clean IMS + clean embedding)
     class_inputs_ims = train_ims.copy()
     class_inputs_embedding = train_embeddings.copy()  # Will be noised during training
     class_targets_ims = train_ims.copy()
@@ -271,8 +325,12 @@ def prepare_diffusion_data(data, n_samples=None):
     return input_data, target_data, labels, data['num_ims_features'], data['num_embedding_dim']
 
 
-# Load data
-data_dict = load_ims_data()
+# Load data (with optional PCA preprocessing)
+data_dict = load_ims_data(
+    use_pca=use_pca_preprocessing, 
+    n_components=pca_components, 
+    variance_threshold=pca_variance_threshold
+)
 n_samples_use = 5000 if test_mode else None
 if test_mode:
     print("\n*** TEST MODE: Using only 5000 samples ***\n")
@@ -486,14 +544,53 @@ class GaussianDiffusion:
 
 
 # =============================================================================
+# FID COMPUTATION
+# =============================================================================
+def calculate_fid_from_features(real_features, generated_features):
+    """
+    Calculate Frechet Inception Distance (FID) between real and generated features.
+    
+    Args:
+        real_features: numpy array of shape (n_samples, n_features)
+        generated_features: numpy array of shape (n_samples, n_features)
+    
+    Returns:
+        fid_score: float, the Frechet distance
+    """
+    # Calculate mean and covariance for real features
+    mu_real = np.mean(real_features, axis=0)
+    sigma_real = np.cov(real_features, rowvar=False)
+    
+    # Calculate mean and covariance for generated features
+    mu_gen = np.mean(generated_features, axis=0)
+    sigma_gen = np.cov(generated_features, rowvar=False)
+    
+    # Calculate sum of squared differences between means
+    diff = mu_real - mu_gen
+    ssdiff = np.sum(diff ** 2)
+    
+    # Calculate sqrt of product of covariances
+    covmean = scipy.linalg.sqrtm(sigma_real.dot(sigma_gen))
+    
+    # Check for imaginary numbers
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    
+    # Calculate FID
+    fid = ssdiff + np.trace(sigma_real + sigma_gen - 2 * covmean)
+    
+    return fid
+
+
+# =============================================================================
 # SEMI-IMPLICIT TRAINER
 # =============================================================================
 class SemiImplicitIMSTrainer:
     """
     Semi-implicit training for IMS spectra generation and classification
     
-    z=0 (Generation): [noisy_IMS + clean_embedding] → [clean_IMS + clean_embedding]
-    z=1 (Classification): [clean_IMS + noisy_embedding] → [clean_IMS + clean_embedding]
+    z=0 (Generation): [noisy_IMS + clean_embedding] -> [clean_IMS + clean_embedding]
+    z=1 (Classification): [clean_IMS + noisy_embedding] -> [clean_IMS + clean_embedding]
     """
     
     def __init__(self, model, diffusion, optimizer, device, num_ims_features, num_embedding_dim,
@@ -526,7 +623,7 @@ class SemiImplicitIMSTrainer:
         loss_dict = {'generation': 0, 'classification': 0, 'ims_recon': 0, 'embedding_recon': 0}
         
         # ====================================================================
-        # MODE 0: GENERATION (noisy IMS + clean onehot → clean IMS + clean onehot)
+        # MODE 0: GENERATION (noisy IMS + clean onehot -> clean IMS + clean onehot)
         # ====================================================================
         if gen_mask.sum() > 0:
             gen_inputs = input_batch[gen_mask]
@@ -568,7 +665,7 @@ class SemiImplicitIMSTrainer:
             loss_dict['ims_recon'] += gen_loss.item()
         
         # ====================================================================
-        # MODE 1: CLASSIFICATION (clean IMS + noisy onehot → clean IMS + clean onehot)
+        # MODE 1: CLASSIFICATION (clean IMS + noisy onehot -> clean IMS + clean onehot)
         # ====================================================================
         if class_mask.sum() > 0:
             class_inputs = input_batch[class_mask]
@@ -612,7 +709,7 @@ class SemiImplicitIMSTrainer:
             class_loss = F.mse_loss(predicted_noise_embedding, embedding_noise)
             total_loss += self.classification_weight * class_loss
             loss_dict['classification'] = class_loss.item()
-            loss_dict['onehot_recon'] += class_loss.item()
+            loss_dict['embedding_recon'] += class_loss.item()
         
         # Backpropagation
         if total_loss > 0:
@@ -683,7 +780,7 @@ trainer = SemiImplicitIMSTrainer(
 wandb_run = wandb.init(
     entity="kjmetzler-worcester-polytechnic-institute",
     project="ims-spectra-diffusion",
-    name=f"semi_implicit_dual_mode_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+    name=f"semi_implicit_dual_mode{'_pca' if use_pca_preprocessing else ''}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
     config={
         "timesteps": timesteps,
         "hidden_dim": hidden_dim,
@@ -696,7 +793,11 @@ wandb_run = wandb.init(
         "classification_weight": classification_weight,
         "num_ims_features": num_ims_features,
         "num_embedding_dim": num_embedding_dim,
-        "total_params": total_params
+        "total_params": total_params,
+        "use_pca_preprocessing": use_pca_preprocessing,
+        "pca_components": pca_components if use_pca_preprocessing else None,
+        "pca_variance_explained": float(data_dict['pca_transform'].explained_variance_ratio_.sum()) if data_dict.get('pca_transform') else None,
+        "original_ims_dim": data_dict.get('original_ims_dim', num_ims_features)
     }
 )
 
@@ -766,7 +867,7 @@ for epoch in range(max_epochs):
                 'num_embedding_dim': num_embedding_dim
             }
         }, os.path.join(MODELS_DIR, 'best_ims_model.pth'))
-        print(f"  → Saved best model (loss: {best_loss:.6f})")
+        print(f"  -> Saved best model (loss: {best_loss:.6f})")
 
 print("\n" + "="*80)
 print("TRAINING COMPLETE!")
@@ -800,9 +901,31 @@ with torch.no_grad():
     generated = diffusion.sample(model, shape=(n_test, feature_dim), condition=gen_condition)
     generated_ims = generated[:, :num_ims_features].cpu().numpy()
     
-    # Compute MSE for IMS reconstruction
+    # If PCA was used, inverse transform to get original space for visualization
+    generated_ims_original = generated_ims
+    test_ims_original = test_input_ims[:n_test]
+    if data_dict.get('pca_transform') is not None:
+        print("  Applying PCA inverse transform for evaluation...")
+        generated_ims_original = data_dict['pca_transform'].inverse_transform(generated_ims)
+        test_ims_original = data_dict['pca_transform'].inverse_transform(test_input_ims[:n_test])
+        print(f"  Reconstructed to original dimension: {generated_ims_original.shape[1]}")
+    
+    # Compute MSE for IMS reconstruction (in PCA space if PCA was used)
     gen_mse = mean_squared_error(test_input_ims[:n_test].flatten(), generated_ims.flatten())
-    print(f"  Generation MSE: {gen_mse:.6f}")
+    print(f"  Generation MSE (feature space): {gen_mse:.6f}")
+    
+    # Compute MSE in original space if PCA was used
+    if data_dict.get('pca_transform') is not None:
+        gen_mse_original = mean_squared_error(test_ims_original.flatten(), generated_ims_original.flatten())
+        print(f"  Generation MSE (original space): {gen_mse_original:.6f}")
+    
+    # Compute FID using PCA features (always use the feature space)
+    print("\n  Computing FID score...")
+    pca_for_fid = PCA(n_components=min(50, n_test, num_ims_features))
+    real_pca_features = pca_for_fid.fit_transform(test_input_ims[:n_test])
+    gen_pca_features = pca_for_fid.transform(generated_ims)
+    fid_score = calculate_fid_from_features(real_pca_features, gen_pca_features)
+    print(f"  FID Score (PCA features): {fid_score:.4f}")
 
 # Test classification (z=1)
 print("\nTesting Classification (z=1)...")
@@ -844,11 +967,12 @@ with torch.no_grad():
     plt.tight_layout()
     plt.savefig(os.path.join(IMAGES_DIR, 'confusion_matrix.png'), dpi=150)
     plt.close()
-    print(f"  → Saved confusion matrix")
+    print(f"  -> Saved confusion matrix")
 
 # Log final metrics
 wandb.log({
     "test_generation_mse": gen_mse,
+    "test_fid_score": fid_score,
     "test_classification_accuracy": accuracy,
     "confusion_matrix": wandb.Image(os.path.join(IMAGES_DIR, 'confusion_matrix.png'))
 })
@@ -859,11 +983,11 @@ spectra_table = wandb.Table(columns=["class_name", "spectrum_plot", "real_vs_gen
 for i in range(min(8, n_test)):  # Log one sample per class
     class_name = data_dict["class_names"][test_labels[i]]
     
-    # Create individual spectrum plot
+    # Create individual spectrum plot (use original space for visualization)
     fig, ax = plt.subplots(1, 1, figsize=(10, 4))
-    ax.plot(generated_ims[i], label='Generated', linewidth=1.5)
-    ax.plot(test_input_ims[i], label='Real', linewidth=1.5, alpha=0.7)
-    ax.set_title(f'{class_name} Spectrum')
+    ax.plot(generated_ims_original[i], label='Generated', linewidth=1.5)
+    ax.plot(test_ims_original[i], label='Real', linewidth=1.5, alpha=0.7)
+    ax.set_title(f'{class_name} Spectrum' + (' (PCA reconstructed)' if data_dict.get('pca_transform') else ''))
     ax.set_xlabel('Feature Index')
     ax.set_ylabel('Intensity')
     ax.legend()
@@ -873,7 +997,7 @@ for i in range(min(8, n_test)):  # Log one sample per class
     plt.close(fig)
 
 wandb.log({"generated_spectra_samples": spectra_table})
-print("  → Logged spectra samples to wandb")
+print("  -> Logged spectra samples to wandb")
 
 # =============================================================================
 # VISUALIZATION
@@ -890,21 +1014,21 @@ plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig(os.path.join(IMAGES_DIR, 'training_loss.png'), dpi=150)
 plt.close()
-print("  → Saved training loss plot")
+print("  -> Saved training loss plot")
 
-# 2. Generated vs Real Spectra (sample comparison)
+# 2. Generated vs Real Spectra (sample comparison - use original space)
 fig, axes = plt.subplots(4, 2, figsize=(15, 12))
 for i in range(4):
     # Real spectrum
-    axes[i, 0].plot(test_input_ims[i])
+    axes[i, 0].plot(test_ims_original[i])
     axes[i, 0].set_title(f'Real Spectrum {i+1} ({data_dict["class_names"][test_labels[i]]})')
     axes[i, 0].set_xlabel('Feature Index')
     axes[i, 0].set_ylabel('Intensity')
     axes[i, 0].grid(True, alpha=0.3)
     
     # Generated spectrum
-    axes[i, 1].plot(generated_ims[i])
-    axes[i, 1].set_title(f'Generated Spectrum {i+1}')
+    axes[i, 1].plot(generated_ims_original[i])
+    axes[i, 1].set_title(f'Generated Spectrum {i+1}' + (' (PCA recon)' if data_dict.get('pca_transform') else ''))
     axes[i, 1].set_xlabel('Feature Index')
     axes[i, 1].set_ylabel('Intensity')
     axes[i, 1].grid(True, alpha=0.3)
@@ -914,7 +1038,7 @@ plt.tight_layout()
 plt.savefig(os.path.join(IMAGES_DIR, 'spectra_comparison.png'), dpi=150)
 wandb.log({"spectra_comparison": wandb.Image(os.path.join(IMAGES_DIR, 'spectra_comparison.png'))})
 plt.close()
-print("  → Saved spectra comparison")
+print("  -> Saved spectra comparison")
 
 # 3. PCA visualization
 pca = PCA(n_components=2)
@@ -946,15 +1070,15 @@ plt.tight_layout()
 plt.savefig(os.path.join(IMAGES_DIR, 'pca_comparison.png'), dpi=150)
 wandb.log({"pca_comparison": wandb.Image(os.path.join(IMAGES_DIR, 'pca_comparison.png'))})
 plt.close()
-print("  → Saved PCA comparison")
+print("  -> Saved PCA comparison")
 
-# 4. Per-class generation quality
+# 4. Per-class generation quality (use original space for meaningful MSE)
 class_mses = []
 for class_idx in range(len(data_dict['class_names'])):
     class_mask = test_labels[:n_test] == class_idx
     if class_mask.sum() > 0:
-        class_real = test_input_ims[:n_test][class_mask]
-        class_gen = generated_ims[class_mask]
+        class_real = test_ims_original[class_mask]
+        class_gen = generated_ims_original[class_mask]
         class_mse = mean_squared_error(class_real.flatten(), class_gen.flatten())
         class_mses.append(class_mse)
     else:
@@ -971,13 +1095,15 @@ plt.tight_layout()
 plt.savefig(os.path.join(IMAGES_DIR, 'per_class_generation_quality.png'), dpi=150)
 wandb.log({"per_class_quality": wandb.Image(os.path.join(IMAGES_DIR, 'per_class_generation_quality.png'))})
 plt.close()
-print("  → Saved per-class quality plot")
+print("  -> Saved per-class quality plot")
 
-# Save generated spectra for testing
+# Save generated spectra for testing (save both spaces if PCA was used)
 print("\nSaving generated spectra...")
-np.save(os.path.join(RESULTS_DIR, 'generated_ims_test.npy'), generated_ims)
+np.save(os.path.join(RESULTS_DIR, 'generated_ims_test.npy'), generated_ims_original)
 np.save(os.path.join(RESULTS_DIR, 'generated_labels_test.npy'), test_labels[:n_test])
-print(f"  → Saved {n_test} generated test spectra")
+if data_dict.get('pca_transform') is not None:
+    np.save(os.path.join(RESULTS_DIR, 'generated_ims_pca_space.npy'), generated_ims)
+print(f"  -> Saved {n_test} generated test spectra")
 
 # Save results
 results = {
@@ -985,11 +1111,17 @@ results = {
     'final_loss': loss_history[-1],
     'best_loss': best_loss,
     'test_generation_mse': float(gen_mse),
+    'test_fid_score': float(fid_score),
     'test_classification_accuracy': float(accuracy),
     'num_parameters': total_params,
     'epochs_trained': max_epochs,
     'class_names': data_dict['class_names'],
-    'per_class_mse': [float(m) for m in class_mses]
+    'per_class_mse': [float(m) for m in class_mses],
+    'use_pca_preprocessing': use_pca_preprocessing,
+    'pca_components': data_dict['pca_transform'].n_components_ if data_dict.get('pca_transform') else None,
+    'pca_variance_explained': float(data_dict['pca_transform'].explained_variance_ratio_.sum()) if data_dict.get('pca_transform') else None,
+    'original_ims_dim': data_dict.get('original_ims_dim', num_ims_features),
+    'feature_dim_used': num_ims_features
 }
 
 with open(os.path.join(RESULTS_DIR, 'ims_diffusion_results.json'), 'w') as f:
@@ -1002,6 +1134,7 @@ print(f"Results:")
 print(f"  Final training loss: {loss_history[-1]:.6f}")
 print(f"  Best training loss: {best_loss:.6f}")
 print(f"  Test generation MSE: {gen_mse:.6f}")
+print(f"  Test FID score: {fid_score:.4f}")
 print(f"  Test classification accuracy: {accuracy*100:.2f}%")
 print(f"\nOutputs saved to:")
 print(f"  Models: {MODELS_DIR}")
