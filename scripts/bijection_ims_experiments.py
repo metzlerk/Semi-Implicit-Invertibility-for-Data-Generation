@@ -1,24 +1,31 @@
 """
-Bijection-based IMS Spectra Generation with Discrete Lattice
-============================================================
+Bijection-based IMS Spectra Generation with Fixed Permutation + Discrete Lattice
+=================================================================================
 
-This script implements an iterative fixed-point approach:
+This script implements an iterative fixed-point approach with a FIXED bijection:
 - X: Real IMS spectra (1676-dimensional)
-- Y: Discrete lattice representation (same dimension, quantized to grid)
+- Y: Permuted + quantized X on a discrete lattice (same dimension)
 - ChemNet Embedding: 512-dimensional molecular embedding for conditioning
+
+KEY DESIGN: The bijection X ↔ Y is FIXED (not learned):
+    Y = quantize(permute(X))
+    X = inverse_permute(Y)  (with quantization loss)
+
+The permutation is defined ONCE at the start and never changes.
+Only the fixed-point iteration network is trained.
 
 Key Concept: [X, Y, Embedding] is an ATTRACTING FIXED POINT
 - From any starting point, iterate until convergence to the manifold
 - The model learns to pull inputs toward the correct (X, Y) pair
 
-Training:
-1. Forward:  [X, 0, Emb] → iterate → [X, Y, Emb]  (Learn Y from X)
-2. Inverse:  [0, Y, Emb] → iterate → [X, Y, Emb]  (Reconstruct X from Y)
-3. Fixed-point: [X̃, Ỹ, Emb] → iterate → [X, Y, Emb]  (Attract from anywhere)
+Training (with known X, Y pairs from fixed bijection):
+1. Inverse:  [0, Y, Emb] → iterate → [X, Y, Emb]  (Reconstruct X from Y)
+2. Forward:  [X, 0, Emb] → iterate → [X, Y, Emb]  (Reconstruct Y from X)
+3. Fixed-point: [X, Y, Emb] → iterate → [X, Y, Emb]  (Stay at fixed point)
 
 Generation:
-- Pick a class, get its Y from the discrete lattice
-- Start from [noise, Y, Emb] and iterate to fixed point
+- Sample Y from the lattice (using class distribution)
+- Start from [0, Y, Emb] and iterate to fixed point
 - Extract the converged X as the synthetic spectrum
 
 Unlike diffusion: No noise schedule needed - just iterate until convergence!
@@ -73,7 +80,7 @@ hidden_dim = 512
 embedding_dim = 256
 num_layers = 6
 learning_rate = 1e-4
-max_epochs = 1000
+max_epochs = 500
 batch_size = 256
 test_mode = '--test' in sys.argv
 
@@ -87,10 +94,12 @@ lattice_levels = 256  # Number of discrete levels per dimension
 lattice_min = -3.0  # Min value (after normalization)
 lattice_max = 3.0   # Max value (after normalization)
 
+# Fixed bijection seed (for reproducibility)
+BIJECTION_SEED = 42
+
 # Loss weights
 reconstruction_weight = 1.0
 fixed_point_weight = 0.5  # Encourage convergence (output ≈ input when at fixed point)
-lattice_consistency_weight = 0.1  # Keep Y on the lattice
 
 print(f"Hyperparameters:")
 print(f"  Hidden dimension: {hidden_dim}")
@@ -103,25 +112,45 @@ print(f"  Training iterations: {num_iterations}")
 print(f"  Inference iterations: {num_iterations_inference}")
 print(f"  Lattice levels: {lattice_levels}")
 print(f"  Lattice range: [{lattice_min}, {lattice_max}]")
+print(f"  Bijection seed: {BIJECTION_SEED}")
 print(f"  Test mode: {test_mode}")
 
 # =============================================================================
-# DISCRETE LATTICE UTILITIES
+# FIXED BIJECTION: PERMUTATION + QUANTIZATION
 # =============================================================================
-class DiscreteLattice:
+class FixedBijection:
     """
-    Discrete lattice for Y-space quantization.
-    Maps continuous values to nearest lattice points.
+    Fixed bijection between X-space and Y-space using permutation + quantization.
+    
+    Forward:  Y = quantize(X[:, permutation])
+    Inverse:  X_approx = Y[:, inverse_permutation]
+    
+    The permutation is defined ONCE and never changes.
+    This is NOT learned - it's a fixed transformation.
     """
     
-    def __init__(self, num_levels=256, min_val=-3.0, max_val=3.0):
+    def __init__(self, dim, num_levels=256, min_val=-3.0, max_val=3.0, seed=42):
+        self.dim = dim
         self.num_levels = num_levels
         self.min_val = min_val
         self.max_val = max_val
         self.step = (max_val - min_val) / (num_levels - 1)
         
-        # Create lattice points
-        self.lattice_points = torch.linspace(min_val, max_val, num_levels)
+        # Create fixed permutation (same every time with same seed)
+        np.random.seed(seed)
+        self.permutation = np.random.permutation(dim)
+        self.inverse_permutation = np.argsort(self.permutation)
+        
+        # Convert to torch tensors
+        self.perm_tensor = torch.LongTensor(self.permutation)
+        self.inv_perm_tensor = torch.LongTensor(self.inverse_permutation)
+        
+        print(f"\nFixed Bijection initialized:")
+        print(f"  Dimension: {dim}")
+        print(f"  Lattice levels: {num_levels}")
+        print(f"  Lattice range: [{min_val}, {max_val}]")
+        print(f"  Permutation seed: {seed}")
+        print(f"  First 10 perm indices: {self.permutation[:10]}")
         
     def quantize(self, x):
         """Quantize continuous values to nearest lattice points"""
@@ -133,27 +162,62 @@ class DiscreteLattice:
         # Return quantized values
         return self.min_val + indices.float() * self.step
     
-    def quantize_soft(self, x, temperature=0.1):
+    def x_to_y(self, x):
         """
-        Soft quantization for training (differentiable).
-        Uses straight-through estimator: quantize in forward, pass gradient in backward.
+        Fixed bijection: X → Y
+        Y = quantize(permute(X))
         """
-        quantized = self.quantize(x)
-        # Straight-through: use quantized value but pass gradient through x
-        return x + (quantized - x).detach()
+        # Permute dimensions
+        perm = self.perm_tensor.to(x.device)
+        x_permuted = x[:, perm]
+        # Quantize to lattice
+        y = self.quantize(x_permuted)
+        return y
     
-    def get_lattice_points(self, device='cpu'):
-        """Get all lattice points as tensor"""
-        return self.lattice_points.to(device)
+    def y_to_x_approx(self, y):
+        """
+        Inverse bijection: Y → X (approximate due to quantization)
+        X_approx = inverse_permute(Y)
+        
+        Note: This is only approximate because quantization loses information.
+        The neural network's job is to recover the lost information.
+        """
+        inv_perm = self.inv_perm_tensor.to(y.device)
+        x_approx = y[:, inv_perm]
+        return x_approx
     
-    def random_lattice_point(self, shape, device='cpu'):
-        """Sample random points from the lattice"""
-        indices = torch.randint(0, self.num_levels, shape, device=device)
+    def random_y(self, batch_size, device='cpu'):
+        """Sample random Y values from the lattice"""
+        indices = torch.randint(0, self.num_levels, (batch_size, self.dim), device=device)
         return self.min_val + indices.float() * self.step
+    
+    def get_y_distribution(self, Y_all, labels, num_classes):
+        """Compute per-class Y statistics for sampling during generation"""
+        class_means = {}
+        class_stds = {}
+        
+        for c in range(num_classes):
+            mask = labels == c
+            if mask.sum() > 0:
+                Y_c = Y_all[mask]
+                class_means[c] = Y_c.mean(axis=0)
+                class_stds[c] = Y_c.std(axis=0) + 1e-6
+        
+        return class_means, class_stds
+    
+    def sample_y_for_class(self, class_idx, class_means, class_stds, n_samples=1, device='cpu'):
+        """Sample Y from a class's distribution, then quantize to lattice"""
+        mean = torch.tensor(class_means[class_idx], device=device)
+        std = torch.tensor(class_stds[class_idx], device=device)
+        
+        # Sample from Gaussian
+        y_continuous = torch.randn(n_samples, self.dim, device=device) * std + mean
+        
+        # Quantize to lattice
+        y_quantized = self.quantize(y_continuous)
+        
+        return y_quantized
 
-
-# Initialize global lattice
-lattice = DiscreteLattice(lattice_levels, lattice_min, lattice_max)
 
 # =============================================================================
 # DATA LOADING
@@ -420,42 +484,6 @@ class FixedPointNetwork(nn.Module):
 
 
 # =============================================================================
-# LATTICE Y ENCODER
-# =============================================================================
-class LatticeEncoder(nn.Module):
-    """
-    Learns to encode X into a discrete lattice Y.
-    This creates the initial Y for each training sample.
-    """
-    
-    def __init__(self, ims_dim, embedding_dim=512, hidden_dim=256):
-        super().__init__()
-        self.ims_dim = ims_dim
-        
-        self.encoder = nn.Sequential(
-            nn.Linear(ims_dim + embedding_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, ims_dim),
-            nn.Tanh()  # Output in [-1, 1], will be scaled to lattice range
-        )
-        
-    def forward(self, x, embedding):
-        """Encode X to continuous Y, then quantize to lattice"""
-        combined = torch.cat([x, embedding], dim=1)
-        y_continuous = self.encoder(combined)
-        
-        # Scale to lattice range
-        y_scaled = y_continuous * (lattice_max - lattice_min) / 2 + (lattice_max + lattice_min) / 2
-        
-        # Quantize to discrete lattice (with straight-through gradient)
-        y_quantized = lattice.quantize_soft(y_scaled)
-        
-        return y_quantized, y_continuous
-
-
-# =============================================================================
 # FID COMPUTATION
 # =============================================================================
 def calculate_fid_from_features(real_features, generated_features):
@@ -480,38 +508,38 @@ def calculate_fid_from_features(real_features, generated_features):
 
 
 # =============================================================================
-# TRAINER
+# TRAINER (with fixed bijection)
 # =============================================================================
 class FixedPointTrainer:
     """
     Trainer for the fixed-point iteration network.
+    Uses a FIXED bijection (permutation + quantization) - not learned!
     
-    Training procedure:
-    1. Encode X → Y (discrete lattice)
-    2. Forward: [X, 0] → iterate → [X', Y'] should give [X, Y]
-    3. Inverse: [0, Y] → iterate → [X', Y'] should give [X, Y]  
-    4. Fixed-point: [X, Y] → iterate → [X', Y'] should stay at [X, Y]
+    Training procedure (with known X, Y pairs):
+    1. Inverse: [0, Y] → iterate → [X', Y'] should give [X, Y]
+    2. Forward: [X, 0] → iterate → [X', Y'] should give [X, Y]  
+    3. Fixed-point: [X, Y] → iterate → [X', Y'] should stay at [X, Y]
+    4. Random: [noise, Y] → iterate → [X', Y'] should give [X, Y]
     """
     
-    def __init__(self, model, encoder, optimizer, device, ims_dim, embedding_dim,
+    def __init__(self, model, bijection, optimizer, device, ims_dim, embedding_dim,
                  num_iterations=10):
         self.model = model
-        self.encoder = encoder
+        self.bijection = bijection  # Fixed bijection, not learned!
         self.optimizer = optimizer
         self.device = device
         self.ims_dim = ims_dim
         self.embedding_dim = embedding_dim
         self.num_iterations = num_iterations
         
-        # Store learned Y values for each class (for generation)
-        self.class_Y = {}
-        
-    def train_step(self, x_batch, embedding_batch, labels_batch):
+    def train_step(self, x_batch, y_batch, embedding_batch):
         """
         Training step with multiple objectives.
+        
+        Note: y_batch is computed BEFORE training using the fixed bijection.
+        We don't learn the bijection - we learn to iterate toward the fixed point.
         """
         self.model.train()
-        self.encoder.train()
         self.optimizer.zero_grad()
         
         batch_size = x_batch.shape[0]
@@ -519,48 +547,23 @@ class FixedPointTrainer:
         
         total_loss = 0
         loss_dict = {
-            'encode': 0, 
-            'forward_x': 0, 
-            'forward_y': 0,
             'inverse_x': 0, 
             'inverse_y': 0,
+            'forward_x': 0, 
+            'forward_y': 0,
             'fixed_point': 0,
-            'lattice': 0
+            'random_start': 0
         }
         
         # ====================================================================
-        # STEP 1: Encode X → Y (learn the discrete lattice mapping)
+        # OBJECTIVE 1: Inverse - [0, Y] → iterate → [X, Y]
+        # Start with zeros for X, known Y, should reconstruct X
+        # THIS IS THE KEY GENERATION OBJECTIVE
         # ====================================================================
-        y_target, y_continuous = self.encoder(x_batch, embedding_batch)
-        
-        # Lattice consistency loss (encourage Y to stay on lattice)
-        y_quantized = lattice.quantize(y_continuous * (lattice_max - lattice_min) / 2 + (lattice_max + lattice_min) / 2)
-        lattice_loss = F.mse_loss(y_continuous * (lattice_max - lattice_min) / 2 + (lattice_max + lattice_min) / 2, y_quantized)
-        loss_dict['lattice'] = lattice_loss.item()
-        total_loss += lattice_consistency_weight * lattice_loss
-        
-        # ====================================================================
-        # STEP 2: Forward - [X, 0] → iterate → [X, Y]
-        # Start with correct X, zeros for Y, should learn Y
-        # ====================================================================
-        x_fwd, y_fwd = self.model.iterate(x_batch, zeros, embedding_batch, self.num_iterations)
-        
-        forward_x_loss = F.mse_loss(x_fwd, x_batch)
-        forward_y_loss = F.mse_loss(y_fwd, y_target)
-        
-        loss_dict['forward_x'] = forward_x_loss.item()
-        loss_dict['forward_y'] = forward_y_loss.item()
-        
-        total_loss += reconstruction_weight * (forward_x_loss + forward_y_loss)
-        
-        # ====================================================================
-        # STEP 3: Inverse - [0, Y] → iterate → [X, Y]
-        # Start with zeros for X, correct Y, should reconstruct X
-        # ====================================================================
-        x_inv, y_inv = self.model.iterate(zeros, y_target.detach(), embedding_batch, self.num_iterations)
+        x_inv, y_inv = self.model.iterate(zeros, y_batch, embedding_batch, self.num_iterations)
         
         inverse_x_loss = F.mse_loss(x_inv, x_batch)
-        inverse_y_loss = F.mse_loss(y_inv, y_target.detach())
+        inverse_y_loss = F.mse_loss(y_inv, y_batch)
         
         loss_dict['inverse_x'] = inverse_x_loss.item()
         loss_dict['inverse_y'] = inverse_y_loss.item()
@@ -568,65 +571,78 @@ class FixedPointTrainer:
         total_loss += reconstruction_weight * (inverse_x_loss + 0.1 * inverse_y_loss)
         
         # ====================================================================
-        # STEP 4: Fixed-point - [X, Y] → iterate → [X, Y]
+        # OBJECTIVE 2: Forward - [X, 0] → iterate → [X, Y]
+        # Start with known X, zeros for Y, should recover Y
+        # ====================================================================
+        x_fwd, y_fwd = self.model.iterate(x_batch, zeros, embedding_batch, self.num_iterations)
+        
+        forward_x_loss = F.mse_loss(x_fwd, x_batch)
+        forward_y_loss = F.mse_loss(y_fwd, y_batch)
+        
+        loss_dict['forward_x'] = forward_x_loss.item()
+        loss_dict['forward_y'] = forward_y_loss.item()
+        
+        total_loss += reconstruction_weight * (0.1 * forward_x_loss + forward_y_loss)
+        
+        # ====================================================================
+        # OBJECTIVE 3: Fixed-point - [X, Y] → iterate → [X, Y]
         # At the fixed point, iteration should be identity (stay put)
         # ====================================================================
-        x_fp, y_fp = self.model.iterate(x_batch, y_target.detach(), embedding_batch, self.num_iterations)
+        x_fp, y_fp = self.model.iterate(x_batch, y_batch, embedding_batch, self.num_iterations)
         
-        fp_loss = F.mse_loss(x_fp, x_batch) + F.mse_loss(y_fp, y_target.detach())
+        fp_loss = F.mse_loss(x_fp, x_batch) + F.mse_loss(y_fp, y_batch)
         loss_dict['fixed_point'] = fp_loss.item()
         
         total_loss += fixed_point_weight * fp_loss
         
         # ====================================================================
-        # STEP 5: Random start - [noise, Y] → iterate → [X, Y]
-        # Test attraction from random X
+        # OBJECTIVE 4: Random start - [noise, Y] → iterate → [X, Y]
+        # Test attraction from random X starting point
         # ====================================================================
         noise = torch.randn_like(x_batch) * 0.5
-        x_rand, y_rand = self.model.iterate(noise, y_target.detach(), embedding_batch, self.num_iterations)
+        x_rand, y_rand = self.model.iterate(noise, y_batch, embedding_batch, self.num_iterations)
         
         rand_loss = F.mse_loss(x_rand, x_batch)
-        total_loss += 0.3 * rand_loss  # Lower weight for random start
+        loss_dict['random_start'] = rand_loss.item()
+        
+        total_loss += 0.3 * rand_loss
         
         # Backprop
         total_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-        torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), 1.0)
         self.optimizer.step()
         
-        return total_loss.item(), loss_dict, y_target.detach()
+        return total_loss.item(), loss_dict
     
     def generate(self, y_samples, embeddings, num_iterations=None):
         """
         Generate X from Y samples using iterative fixed-point approach.
+        Start from zeros and iterate toward the fixed point.
         """
         if num_iterations is None:
             num_iterations = num_iterations_inference
             
         self.model.eval()
         with torch.no_grad():
-            # Start from zeros (or small noise) for X
+            # Start from zeros for X
             x_init = torch.zeros(y_samples.shape[0], self.ims_dim, device=self.device)
             
             # Iterate to fixed point
             x_generated, y_final = self.model.iterate(x_init, y_samples, embeddings, num_iterations)
             
         return x_generated
-    
-    def encode_to_lattice(self, x_batch, embeddings):
-        """Encode X to discrete lattice Y"""
-        self.encoder.eval()
-        with torch.no_grad():
-            y_quantized, _ = self.encoder(x_batch, embeddings)
-        return y_quantized
 
 
 # =============================================================================
 # DATASET AND DATALOADER
 # =============================================================================
-class FixedPointDataset(torch.utils.data.Dataset):
-    def __init__(self, ims_data, embeddings, labels):
+class FixedBijectionDataset(torch.utils.data.Dataset):
+    """
+    Dataset that includes pre-computed Y values from the fixed bijection.
+    """
+    def __init__(self, ims_data, y_data, embeddings, labels):
         self.ims_data = torch.FloatTensor(ims_data)
+        self.y_data = torch.FloatTensor(y_data)
         self.embeddings = torch.FloatTensor(embeddings)
         self.labels = torch.LongTensor(labels)
     
@@ -634,7 +650,7 @@ class FixedPointDataset(torch.utils.data.Dataset):
         return len(self.ims_data)
     
     def __getitem__(self, idx):
-        return self.ims_data[idx], self.embeddings[idx], self.labels[idx]
+        return self.ims_data[idx], self.y_data[idx], self.embeddings[idx], self.labels[idx]
 
 
 # =============================================================================
@@ -660,11 +676,51 @@ print(f"\nData dimensions:")
 print(f"  IMS features: {num_ims_features}")
 print(f"  Embedding dimension: {num_embedding_dim}")
 print(f"  Number of classes: {num_classes}")
-print(f"  Lattice: {lattice_levels} levels in [{lattice_min}, {lattice_max}]")
 
-# Create dataset and loader
-train_dataset = FixedPointDataset(
+# =============================================================================
+# INITIALIZE FIXED BIJECTION
+# =============================================================================
+print("\n" + "="*80)
+print("INITIALIZING FIXED BIJECTION (Permutation + Quantization)")
+print("="*80)
+
+bijection = FixedBijection(
+    dim=num_ims_features,
+    num_levels=lattice_levels,
+    min_val=lattice_min,
+    max_val=lattice_max,
+    seed=BIJECTION_SEED
+)
+
+# Pre-compute Y for all training data using the FIXED bijection
+print("\nComputing Y = quantize(permute(X)) for all training data...")
+train_X = torch.FloatTensor(data_dict['train_ims'])
+train_Y = bijection.x_to_y(train_X).numpy()
+print(f"  Train X shape: {train_X.shape}")
+print(f"  Train Y shape: {train_Y.shape}")
+print(f"  Y range: [{train_Y.min():.3f}, {train_Y.max():.3f}]")
+
+# Verify the bijection is working
+X_recovered = bijection.y_to_x_approx(torch.FloatTensor(train_Y)).numpy()
+recovery_error = np.abs(data_dict['train_ims'] - X_recovered).mean()
+print(f"  Recovery error (due to quantization): {recovery_error:.6f}")
+
+# Pre-compute Y for test data
+test_X = torch.FloatTensor(data_dict['test_ims'])
+test_Y = bijection.x_to_y(test_X).numpy()
+
+# Compute per-class Y statistics for generation
+class_Y_means, class_Y_stds = bijection.get_y_distribution(
+    train_Y, data_dict['train_labels'], num_classes
+)
+print(f"\nComputed per-class Y distributions for {len(class_Y_means)} classes")
+
+# =============================================================================
+# CREATE DATASET AND DATALOADER
+# =============================================================================
+train_dataset = FixedBijectionDataset(
     data_dict['train_ims'],
+    train_Y,
     data_dict['train_embeddings'],
     data_dict['train_labels']
 )
@@ -678,10 +734,10 @@ print(f"  Batches per epoch: {len(train_loader)}")
 # TRAINING
 # =============================================================================
 print("\n" + "="*80)
-print("STARTING FIXED-POINT BIJECTION TRAINING")
+print("STARTING FIXED-POINT TRAINING (with fixed bijection)")
 print("="*80)
 
-# Initialize models
+# Initialize model (only the iteration network - bijection is fixed!)
 model = FixedPointNetwork(
     ims_dim=num_ims_features,
     embedding_dim=num_embedding_dim,
@@ -689,28 +745,17 @@ model = FixedPointNetwork(
     num_layers=num_layers
 ).to(device)
 
-encoder = LatticeEncoder(
-    ims_dim=num_ims_features,
-    embedding_dim=num_embedding_dim,
-    hidden_dim=hidden_dim // 2
-).to(device)
-
-total_params = sum(p.numel() for p in model.parameters()) + sum(p.numel() for p in encoder.parameters())
+total_params = sum(p.numel() for p in model.parameters())
 print(f"\nModel architecture:")
-print(f"  Fixed-point network params: {sum(p.numel() for p in model.parameters()):,}")
-print(f"  Lattice encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
-print(f"  Total parameters: {total_params:,}")
+print(f"  Fixed-point network params: {total_params:,}")
+print(f"  Bijection: FIXED (not learned)")
 
-# Initialize optimizer (joint for both networks)
-optimizer = torch.optim.AdamW(
-    list(model.parameters()) + list(encoder.parameters()), 
-    lr=learning_rate, 
-    weight_decay=1e-5
-)
+# Initialize optimizer (only for the network, bijection is fixed)
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-5)
 
 # Initialize trainer
 trainer = FixedPointTrainer(
-    model, encoder, optimizer, device,
+    model, bijection, optimizer, device,
     num_ims_features, num_embedding_dim,
     num_iterations
 )
@@ -719,7 +764,7 @@ trainer = FixedPointTrainer(
 wandb_run = wandb.init(
     entity="kjmetzler-worcester-polytechnic-institute",
     project="ims-spectra-bijection",
-    name=f"fixed_point_lattice_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+    name=f"fixed_bijection_perm_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
     config={
         "hidden_dim": hidden_dim,
         "embedding_dim": embedding_dim,
@@ -731,6 +776,8 @@ wandb_run = wandb.init(
         "num_iterations_inference": num_iterations_inference,
         "lattice_levels": lattice_levels,
         "lattice_range": [lattice_min, lattice_max],
+        "bijection_type": "permutation_quantize",
+        "bijection_seed": BIJECTION_SEED,
         "reconstruction_weight": reconstruction_weight,
         "fixed_point_weight": fixed_point_weight,
         "num_ims_features": num_ims_features,
@@ -746,17 +793,17 @@ best_loss = float('inf')
 
 for epoch in range(max_epochs):
     epoch_loss = 0
-    epoch_losses = {k: 0 for k in ['forward_x', 'forward_y', 'inverse_x', 'inverse_y', 'fixed_point', 'lattice']}
+    epoch_losses = {k: 0 for k in ['inverse_x', 'inverse_y', 'forward_x', 'forward_y', 'fixed_point', 'random_start']}
     num_batches = 0
     
     pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{max_epochs}")
-    for batch_idx, (x_batch, emb_batch, label_batch) in enumerate(pbar):
+    for batch_idx, (x_batch, y_batch, emb_batch, label_batch) in enumerate(pbar):
         x_batch = x_batch.to(device)
+        y_batch = y_batch.to(device)
         emb_batch = emb_batch.to(device)
-        label_batch = label_batch.to(device)
         
         # Training step
-        batch_loss, loss_dict, _ = trainer.train_step(x_batch, emb_batch, label_batch)
+        batch_loss, loss_dict = trainer.train_step(x_batch, y_batch, emb_batch)
         
         epoch_loss += batch_loss
         for k in epoch_losses:
@@ -766,8 +813,8 @@ for epoch in range(max_epochs):
         # Update progress bar
         pbar.set_postfix({
             'loss': f"{batch_loss:.4f}",
-            'fwd': f"{loss_dict['forward_x']:.4f}",
-            'inv': f"{loss_dict['inverse_x']:.4f}",
+            'inv_x': f"{loss_dict['inverse_x']:.4f}",
+            'fwd_y': f"{loss_dict['forward_y']:.4f}",
             'fp': f"{loss_dict['fixed_point']:.4f}"
         })
     
@@ -786,7 +833,7 @@ for epoch in range(max_epochs):
     
     # Print epoch summary
     print(f"Epoch {epoch+1}/{max_epochs} - Loss: {avg_loss:.6f} | "
-          f"Fwd_X: {avg_losses['forward_x']:.6f} | Inv_X: {avg_losses['inverse_x']:.6f} | "
+          f"Inv_X: {avg_losses['inverse_x']:.6f} | Fwd_Y: {avg_losses['forward_y']:.6f} | "
           f"FP: {avg_losses['fixed_point']:.6f}")
     
     # Save best model
@@ -795,18 +842,22 @@ for epoch in range(max_epochs):
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
-            'encoder_state_dict': encoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': avg_loss,
             'model_config': {
                 'ims_dim': num_ims_features,
                 'embedding_dim': num_embedding_dim,
                 'hidden_dim': hidden_dim,
-                'num_layers': num_layers,
+                'num_layers': num_layers
+            },
+            'bijection_config': {
+                'seed': BIJECTION_SEED,
                 'lattice_levels': lattice_levels,
-                'lattice_range': [lattice_min, lattice_max]
+                'lattice_min': lattice_min,
+                'lattice_max': lattice_max,
+                'permutation': bijection.permutation.tolist()
             }
-        }, os.path.join(MODELS_DIR, 'best_fixed_point_model.pth'))
+        }, os.path.join(MODELS_DIR, 'best_fixed_bijection_model.pth'))
         print(f"  -> Saved best model (loss: {best_loss:.6f})")
 
 print("\n" + "="*80)
@@ -814,108 +865,65 @@ print("TRAINING COMPLETE!")
 print("="*80)
 
 # =============================================================================
-# COMPUTE LATTICE Y FOR ALL TRAINING DATA
-# =============================================================================
-print("\nComputing discrete lattice Y for all training data...")
-
-model.eval()
-encoder.eval()
-all_train_Y = []
-all_train_labels = []
-
-with torch.no_grad():
-    for x_batch, emb_batch, label_batch in tqdm(train_loader, desc="Encoding to lattice"):
-        x_batch = x_batch.to(device)
-        emb_batch = emb_batch.to(device)
-        
-        y_batch = trainer.encode_to_lattice(x_batch, emb_batch)
-        all_train_Y.append(y_batch.cpu().numpy())
-        all_train_labels.append(label_batch.numpy())
-
-all_train_Y = np.vstack(all_train_Y)
-all_train_labels = np.concatenate(all_train_labels)
-
-# Store per-class Y distributions (for generation)
-class_Y_means = {}
-class_Y_stds = {}
-for c in range(num_classes):
-    mask = all_train_labels == c
-    if mask.sum() > 0:
-        class_Y_means[c] = all_train_Y[mask].mean(axis=0)
-        class_Y_stds[c] = all_train_Y[mask].std(axis=0)
-
-print(f"Computed lattice Y for {len(all_train_Y)} samples")
-
-# Verify Y is on lattice
-y_on_lattice = lattice.quantize(torch.tensor(all_train_Y)).numpy()
-lattice_error = np.abs(all_train_Y - y_on_lattice).mean()
-print(f"Average distance from lattice: {lattice_error:.6f}")
-
-# =============================================================================
 # EVALUATION
 # =============================================================================
 print("\nEvaluating model...")
 
-# Prepare test data
-test_ims = data_dict['test_ims']
-test_embeddings = data_dict['test_embeddings']
-test_labels = data_dict['test_labels']
+n_test = min(1000, len(data_dict['test_ims']))
 
-n_test = min(1000, len(test_ims))
-
-# Test reconstruction (X → Y → X')
-print("\nTesting reconstruction (X → Y, then [0, Y] → X')...")
+# Test reconstruction: [0, Y] → iterate → [X', Y']
+print("\nTesting reconstruction ([0, Y] → X)...")
 with torch.no_grad():
-    test_x = torch.FloatTensor(test_ims[:n_test]).to(device)
-    test_emb = torch.FloatTensor(test_embeddings[:n_test]).to(device)
+    test_x = torch.FloatTensor(data_dict['test_ims'][:n_test]).to(device)
+    test_y = torch.FloatTensor(test_Y[:n_test]).to(device)
+    test_emb = torch.FloatTensor(data_dict['test_embeddings'][:n_test]).to(device)
     
-    # Encode to lattice
-    test_y = trainer.encode_to_lattice(test_x, test_emb)
-    
-    # Reconstruct from Y
+    # Reconstruct X from Y
     x_recon = trainer.generate(test_y, test_emb, num_iterations_inference)
     
     recon_mse = F.mse_loss(x_recon, test_x).item()
     print(f"  Reconstruction MSE: {recon_mse:.6f}")
 
-# Test generation (sample Y → X)
-print("\nTesting generation (class Y → X)...")
+# Test generation: sample Y from class distribution → X
+print("\nTesting generation (sample Y → X)...")
 with torch.no_grad():
     generated_ims_list = []
+    test_labels = data_dict['test_labels'][:n_test]
     
     for i in range(n_test):
         class_idx = test_labels[i]
         
-        # Get class mean Y (quantized to lattice)
-        y_mean = torch.FloatTensor(class_Y_means[class_idx]).unsqueeze(0).to(device)
-        y_sample = lattice.quantize(y_mean + torch.randn_like(y_mean) * 0.1)
+        # Sample Y from class distribution
+        y_sample = bijection.sample_y_for_class(
+            class_idx, class_Y_means, class_Y_stds, n_samples=1, device=device
+        )
+        emb_sample = torch.FloatTensor(data_dict['test_embeddings'][i:i+1]).to(device)
         
-        emb_sample = torch.FloatTensor(test_embeddings[i:i+1]).to(device)
-        
+        # Generate X
         x_gen = trainer.generate(y_sample, emb_sample, num_iterations_inference)
         generated_ims_list.append(x_gen.cpu().numpy())
     
     generated_ims = np.vstack(generated_ims_list)
     
     # Compute MSE
-    gen_mse = mean_squared_error(test_ims[:n_test].flatten(), generated_ims.flatten())
+    gen_mse = mean_squared_error(data_dict['test_ims'][:n_test].flatten(), generated_ims.flatten())
     print(f"  Generation MSE: {gen_mse:.6f}")
     
     # Compute FID
     print("\n  Computing FID score...")
     pca_for_fid = PCA(n_components=min(50, n_test, num_ims_features))
-    real_pca_features = pca_for_fid.fit_transform(test_ims[:n_test])
+    real_pca_features = pca_for_fid.fit_transform(data_dict['test_ims'][:n_test])
     gen_pca_features = pca_for_fid.transform(generated_ims)
     fid_score = calculate_fid_from_features(real_pca_features, gen_pca_features)
     print(f"  FID Score: {fid_score:.4f}")
 
-# Test convergence visualization
+# Test convergence trajectory
 print("\nTesting convergence trajectory...")
 with torch.no_grad():
     # Pick one sample
-    sample_x = torch.FloatTensor(test_ims[0:1]).to(device)
-    sample_emb = torch.FloatTensor(test_embeddings[0:1]).to(device)
-    sample_y = trainer.encode_to_lattice(sample_x, sample_emb)
+    sample_x = torch.FloatTensor(data_dict['test_ims'][0:1]).to(device)
+    sample_y = torch.FloatTensor(test_Y[0:1]).to(device)
+    sample_emb = torch.FloatTensor(data_dict['test_embeddings'][0:1]).to(device)
     
     # Start from zeros and track trajectory
     x_init = torch.zeros_like(sample_x)
@@ -934,9 +942,9 @@ with torch.no_grad():
 print("\nTesting per-class quality...")
 class_mses = []
 for class_idx in range(num_classes):
-    class_mask = test_labels[:n_test] == class_idx
+    class_mask = test_labels == class_idx
     if class_mask.sum() > 0:
-        class_real = test_ims[:n_test][class_mask]
+        class_real = data_dict['test_ims'][:n_test][class_mask]
         class_gen = generated_ims[class_mask]
         class_mse = mean_squared_error(class_real.flatten(), class_gen.flatten())
         class_mses.append(class_mse)
@@ -961,10 +969,10 @@ plt.figure(figsize=(10, 6))
 plt.plot(loss_history)
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
-plt.title('Fixed-Point Bijection Training Loss')
+plt.title('Fixed-Point Training Loss (Fixed Bijection)')
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
-plt.savefig(os.path.join(IMAGES_DIR, 'fixed_point_training_loss.png'), dpi=150)
+plt.savefig(os.path.join(IMAGES_DIR, 'fixed_bijection_training_loss.png'), dpi=150)
 plt.close()
 print("  -> Saved training loss plot")
 
@@ -973,52 +981,52 @@ plt.figure(figsize=(10, 6))
 plt.plot(convergence_curve, 'b-o', markersize=4)
 plt.xlabel('Iteration')
 plt.ylabel('MSE to Target')
-plt.title('Fixed-Point Convergence (Starting from Zeros)')
+plt.title('Fixed-Point Convergence: [0, Y] → [X, Y]')
 plt.grid(True, alpha=0.3)
 plt.yscale('log')
 plt.tight_layout()
-plt.savefig(os.path.join(IMAGES_DIR, 'fixed_point_convergence.png'), dpi=150)
-wandb.log({"convergence_curve": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_point_convergence.png'))})
+plt.savefig(os.path.join(IMAGES_DIR, 'fixed_bijection_convergence.png'), dpi=150)
+wandb.log({"convergence_curve": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_bijection_convergence.png'))})
 plt.close()
 print("  -> Saved convergence plot")
 
 # 3. Generated vs Real Spectra
 fig, axes = plt.subplots(4, 2, figsize=(15, 12))
 for i in range(4):
-    axes[i, 0].plot(test_ims[i])
+    axes[i, 0].plot(data_dict['test_ims'][i])
     axes[i, 0].set_title(f'Real Spectrum {i+1} ({data_dict["class_names"][test_labels[i]]})')
     axes[i, 0].set_xlabel('Feature Index')
     axes[i, 0].set_ylabel('Intensity')
     axes[i, 0].grid(True, alpha=0.3)
     
     axes[i, 1].plot(generated_ims[i])
-    axes[i, 1].set_title(f'Generated Spectrum {i+1} (Fixed-Point)')
+    axes[i, 1].set_title(f'Generated Spectrum {i+1}')
     axes[i, 1].set_xlabel('Feature Index')
     axes[i, 1].set_ylabel('Intensity')
     axes[i, 1].grid(True, alpha=0.3)
 
-plt.suptitle('Real vs Generated IMS Spectra (Fixed-Point Bijection)', fontsize=16, fontweight='bold')
+plt.suptitle('Real vs Generated IMS Spectra (Fixed Bijection)', fontsize=16, fontweight='bold')
 plt.tight_layout()
-plt.savefig(os.path.join(IMAGES_DIR, 'fixed_point_spectra_comparison.png'), dpi=150)
-wandb.log({"spectra_comparison": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_point_spectra_comparison.png'))})
+plt.savefig(os.path.join(IMAGES_DIR, 'fixed_bijection_spectra_comparison.png'), dpi=150)
+wandb.log({"spectra_comparison": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_bijection_spectra_comparison.png'))})
 plt.close()
 print("  -> Saved spectra comparison")
 
 # 4. Lattice Y visualization (PCA)
 pca_y = PCA(n_components=2)
-y_pca = pca_y.fit_transform(all_train_Y[:5000])
+y_pca = pca_y.fit_transform(train_Y[:5000])
 
 plt.figure(figsize=(10, 8))
-scatter = plt.scatter(y_pca[:, 0], y_pca[:, 1], c=all_train_labels[:5000], 
+scatter = plt.scatter(y_pca[:, 0], y_pca[:, 1], c=data_dict['train_labels'][:5000], 
                       cmap='tab10', alpha=0.5, s=10)
 plt.colorbar(scatter, label='Chemical Class')
 plt.xlabel(f'PC1 ({pca_y.explained_variance_ratio_[0]*100:.1f}%)')
 plt.ylabel(f'PC2 ({pca_y.explained_variance_ratio_[1]*100:.1f}%)')
-plt.title('Discrete Lattice Y Space (PCA)', fontsize=14, fontweight='bold')
+plt.title('Discrete Lattice Y = quantize(permute(X))', fontsize=14, fontweight='bold')
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
-plt.savefig(os.path.join(IMAGES_DIR, 'fixed_point_lattice_space.png'), dpi=150)
-wandb.log({"lattice_space": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_point_lattice_space.png'))})
+plt.savefig(os.path.join(IMAGES_DIR, 'fixed_bijection_lattice_space.png'), dpi=150)
+wandb.log({"lattice_space": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_bijection_lattice_space.png'))})
 plt.close()
 print("  -> Saved lattice space visualization")
 
@@ -1027,23 +1035,23 @@ plt.figure(figsize=(10, 6))
 plt.bar(data_dict['class_names'], class_mses)
 plt.xlabel('Chemical Class')
 plt.ylabel('MSE')
-plt.title('Generation Quality by Chemical Class (Fixed-Point)')
+plt.title('Generation Quality by Chemical Class')
 plt.xticks(rotation=45)
 plt.grid(True, alpha=0.3, axis='y')
 plt.tight_layout()
-plt.savefig(os.path.join(IMAGES_DIR, 'fixed_point_per_class_quality.png'), dpi=150)
-wandb.log({"per_class_quality": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_point_per_class_quality.png'))})
+plt.savefig(os.path.join(IMAGES_DIR, 'fixed_bijection_per_class_quality.png'), dpi=150)
+wandb.log({"per_class_quality": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_bijection_per_class_quality.png'))})
 plt.close()
 print("  -> Saved per-class quality plot")
 
-# 6. PCA comparison of real vs generated
+# 6. PCA comparison
 pca_compare = PCA(n_components=2)
-real_pca = pca_compare.fit_transform(test_ims[:n_test])
+real_pca = pca_compare.fit_transform(data_dict['test_ims'][:n_test])
 gen_pca = pca_compare.transform(generated_ims)
 
 fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
-scatter1 = axes[0].scatter(real_pca[:, 0], real_pca[:, 1], c=test_labels[:n_test], 
+scatter1 = axes[0].scatter(real_pca[:, 0], real_pca[:, 1], c=test_labels, 
                            cmap='tab10', alpha=0.6, s=20)
 axes[0].set_title('Real IMS Spectra (PCA)', fontsize=14, fontweight='bold')
 axes[0].set_xlabel(f'PC1 ({pca_compare.explained_variance_ratio_[0]*100:.1f}%)')
@@ -1051,7 +1059,7 @@ axes[0].set_ylabel(f'PC2 ({pca_compare.explained_variance_ratio_[1]*100:.1f}%)')
 axes[0].grid(True, alpha=0.3)
 plt.colorbar(scatter1, ax=axes[0], label='Chemical Class')
 
-scatter2 = axes[1].scatter(gen_pca[:, 0], gen_pca[:, 1], c=test_labels[:n_test],
+scatter2 = axes[1].scatter(gen_pca[:, 0], gen_pca[:, 1], c=test_labels,
                            cmap='tab10', alpha=0.6, s=20)
 axes[1].set_title('Generated IMS Spectra (PCA)', fontsize=14, fontweight='bold')
 axes[1].set_xlabel(f'PC1 ({pca_compare.explained_variance_ratio_[0]*100:.1f}%)')
@@ -1059,18 +1067,19 @@ axes[1].set_ylabel(f'PC2 ({pca_compare.explained_variance_ratio_[1]*100:.1f}%)')
 axes[1].grid(True, alpha=0.3)
 plt.colorbar(scatter2, ax=axes[1], label='Chemical Class')
 
-plt.suptitle('PCA Comparison: Real vs Generated (Fixed-Point)', fontsize=16, fontweight='bold')
+plt.suptitle('PCA Comparison: Real vs Generated', fontsize=16, fontweight='bold')
 plt.tight_layout()
-plt.savefig(os.path.join(IMAGES_DIR, 'fixed_point_pca_comparison.png'), dpi=150)
-wandb.log({"pca_comparison": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_point_pca_comparison.png'))})
+plt.savefig(os.path.join(IMAGES_DIR, 'fixed_bijection_pca_comparison.png'), dpi=150)
+wandb.log({"pca_comparison": wandb.Image(os.path.join(IMAGES_DIR, 'fixed_bijection_pca_comparison.png'))})
 plt.close()
 print("  -> Saved PCA comparison")
 
 # Save results
 print("\nSaving results...")
-np.save(os.path.join(RESULTS_DIR, 'fixed_point_generated_ims.npy'), generated_ims)
-np.save(os.path.join(RESULTS_DIR, 'fixed_point_lattice_Y.npy'), all_train_Y)
-np.save(os.path.join(RESULTS_DIR, 'fixed_point_labels.npy'), test_labels[:n_test])
+np.save(os.path.join(RESULTS_DIR, 'fixed_bijection_generated_ims.npy'), generated_ims)
+np.save(os.path.join(RESULTS_DIR, 'fixed_bijection_train_Y.npy'), train_Y)
+np.save(os.path.join(RESULTS_DIR, 'fixed_bijection_test_Y.npy'), test_Y)
+np.save(os.path.join(RESULTS_DIR, 'fixed_bijection_permutation.npy'), bijection.permutation)
 
 results = {
     'training_complete': True,
@@ -1083,14 +1092,17 @@ results = {
     'epochs_trained': max_epochs,
     'num_iterations': num_iterations,
     'num_iterations_inference': num_iterations_inference,
+    'bijection_type': 'permutation_quantize',
+    'bijection_seed': BIJECTION_SEED,
     'lattice_levels': lattice_levels,
     'lattice_range': [lattice_min, lattice_max],
+    'quantization_recovery_error': float(recovery_error),
     'class_names': data_dict['class_names'],
     'per_class_mse': [float(m) for m in class_mses],
     'convergence_curve': convergence_curve
 }
 
-with open(os.path.join(RESULTS_DIR, 'fixed_point_results.json'), 'w') as f:
+with open(os.path.join(RESULTS_DIR, 'fixed_bijection_results.json'), 'w') as f:
     json.dump(results, f, indent=2)
 
 print("\n" + "="*80)
@@ -1102,7 +1114,10 @@ print(f"  Best training loss: {best_loss:.6f}")
 print(f"  Test reconstruction MSE: {recon_mse:.6f}")
 print(f"  Test generation MSE: {gen_mse:.6f}")
 print(f"  Test FID score: {fid_score:.4f}")
-print(f"  Convergence: {convergence_curve[0]:.4f} → {convergence_curve[-1]:.4f} over {len(convergence_curve)} steps")
+print(f"  Convergence: {convergence_curve[0]:.4f} → {convergence_curve[-1]:.4f}")
+print(f"\nBijection: Y = quantize(permute(X))")
+print(f"  Seed: {BIJECTION_SEED}")
+print(f"  Quantization recovery error: {recovery_error:.6f}")
 print(f"\nOutputs saved to:")
 print(f"  Models: {MODELS_DIR}")
 print(f"  Images: {IMAGES_DIR}")

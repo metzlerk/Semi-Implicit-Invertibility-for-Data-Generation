@@ -65,13 +65,13 @@ hidden_dim = 256
 embedding_dim = 128
 num_layers = 4
 learning_rate = 1e-4
-max_epochs = 1000
+max_epochs = 500
 batch_size = 256
 test_mode = '--test' in sys.argv  # Quick test with reduced data
 
 # PCA preprocessing options (for regularization)
 use_pca_preprocessing = '--pca' in sys.argv  # Enable PCA regularization
-pca_components = 100  # Number of PCA components (if enabled)
+pca_components = 512  # Number of PCA components (if enabled)
 pca_variance_threshold = 0.95  # Or use variance threshold instead
 
 # Loss weights (generation weighted more than classification)
