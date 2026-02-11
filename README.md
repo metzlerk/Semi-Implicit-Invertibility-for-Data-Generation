@@ -152,8 +152,8 @@ python3 scripts/4f-kjm-masked-linear-trainer.py
 
 **Full classification tests:**
 ```bash
-python3 scripts/4f-kjm-Chemical-Classification2O.py  # 2-output test
-python3 scripts/4f-kjm-Chemical-Classification4O.py  # 4-output test
+python3 scripts/4f-kjm-Chemical-Classification2O.py  # older test
+python3 scripts/4f-kjm-Chemical-Classification4O.py  # more up-to-date test
 ```
 
 ## Testing the Workflow
