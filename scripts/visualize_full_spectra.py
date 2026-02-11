@@ -16,9 +16,9 @@ gen_labels = np.load('results/full_generated_labels.npy')
 test_df = pd.read_feather('Data/test_data.feather')
 chemicals = ['DEB', 'DEM', 'DMMP', 'DPM', 'DtBP', 'JP8', 'MES', 'TEPO']
 
-# Get spectrum columns (p_ then n_)
-p_cols = sorted([col for col in test_df.columns if col.startswith('p_')])
-n_cols = sorted([col for col in test_df.columns if col.startswith('n_')])
+# Get spectrum columns in SAME ORDER as decoder training (unsorted)
+p_cols = [col for col in test_df.columns if col.startswith('p_')]
+n_cols = [col for col in test_df.columns if col.startswith('n_')]
 spectrum_cols = p_cols + n_cols
 
 real_labels = test_df[chemicals].values.argmax(axis=1)
