@@ -141,4 +141,4 @@ slurm-*.out
 *.pth
 *.feather
 *.png
-*.csv
+*.csv*.pt
