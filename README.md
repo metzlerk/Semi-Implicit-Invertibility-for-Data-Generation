@@ -2,6 +2,25 @@
 
 This branch contains the essential code for generating synthetic Ion Mobility Spectrometry (IMS) data using a diffusion model trained in latent space.
 
+## Quick Start
+
+If you just want to test the generation and visualization (training already complete):
+
+```bash
+# 1. Setup missing data file (one-time only)
+cp "/home/kjmetzler/ChemicalDataGeneration/models/Variable Carls/name_smiles_embedding_file.csv" Data/
+
+# 2. Generate synthetic samples (30-60 min on GPU)
+sbatch scripts/run_gen_decode_full.sh
+
+# 3. Create PCA visualizations (1-2 min)
+sbatch scripts/run_final_pca.sh
+
+# 4. Check results
+ls -lh results/full_generated_*.npy
+ls -lh images/pca_real_vs_diffusion*.png
+```
+
 ## Overview
 
 The pipeline consists of three main stages:
@@ -12,12 +31,9 @@ The pipeline consists of three main stages:
 ## Prerequisites
 
 ### External Dependencies
-- **Cate's ChemicalDataGeneration Repository**: Required for encoder/decoder models
+- **Cate's ChemicalDataGeneration Repository**: Required for decoder models
   - Location: `/home/kjmetzler/ChemicalDataGeneration/models`
-  - Contains pre-trained encoder and decoder for IMS spectra
-  
-- **IterativeNN Package**: Required for masked linear layers used in evaluation scripts
-  - Used in: `4f-kjm-*.py` scripts
+  - Contains pre-trained decoder for IMS spectra
 
 ### Python Packages
 - torch
@@ -33,6 +49,10 @@ All data files should be in the `Data/` directory:
 - `test_data.feather`: Test IMS spectra
 - `train_data.feather`: Training IMS spectra (optional for generation, needed for training)
 - `name_smiles_embedding_file.csv`: SMILE embeddings for each chemical
+  - **Note**: This file must be copied from ChemicalDataGeneration repo:
+    ```bash
+    cp "/home/kjmetzler/ChemicalDataGeneration/models/Variable Carls/name_smiles_embedding_file.csv" Data/
+    ```
 
 ### Required Models
 Models should be in the `models/` directory:
@@ -85,10 +105,11 @@ python3 scripts/generate_and_decode_full.py
 - Saves outputs to `results/` directory
 
 **Expected runtime:** ~30-60 minutes on GPU
+
 **Outputs:**
-- `results/full_generated_latents.npy`
-- `results/full_generated_spectra.npy`
-- `results/full_generated_labels.npy`
+- `results/full_generated_latents.npy` (4000 samples × 512 latent dimensions)
+- `results/full_generated_spectra.npy` (4000 samples × spectrum length)
+- `results/full_generated_labels.npy` (4000 labels)
 
 ### Step 3: Visualize Results with PCA
 
@@ -111,8 +132,11 @@ python3 scripts/gen_pca_final.py
   - Real vs Gaussian generated samples
   - Chemical separation in latent space
 
-**Expected runtime:** ~5-10 minutes
-**Output:** PCA plots saved to images/
+**Expected runtime:** ~1-2 minutes
+
+**Outputs:**
+- `images/pca_real_vs_diffusion_vs_gaussian_by_chemical.png`
+- `images/pca_real_vs_diffusion_by_chemical.png`
 
 ### Additional Visualizations
 
@@ -131,46 +155,15 @@ python3 scripts/create_per_chemical_pca.py
 sbatch scripts/run_compare.sh
 ```
 
-### Step 4: Evaluate Generated Spectra Quality
-
-The `4f-*` scripts evaluate synthetic data quality using classification tasks:
-
-**Generate synthetic training data:**
-```bash
-python3 scripts/4f-kjm-synthetic-data-generator.py
-```
-
-**Evaluate with Random Forest and MLP:**
-```bash
-python3 scripts/4f-kjm-evaluatesynthetic-data.py
-```
-
-**Train masked linear networks:**
-```bash
-python3 scripts/4f-kjm-masked-linear-trainer.py
-```
-
-**Full classification tests:**
-```bash
-python3 scripts/4f-kjm-Chemical-Classification2O.py  # older test
-python3 scripts/4f-kjm-Chemical-Classification4O.py  # more up-to-date test
-```
-
 ## Testing the Workflow
 
-### Quick Test: Verify Encoder/Decoder
+### Pipeline Verification
 
-Test that the encoder and decoder from Cate's repo are working:
+To verify the workflow is working:
 
-```bash
-sbatch scripts/run_test_encoder_decoder.sh
-```
-
-This will:
-- Load test IMS spectra
-- Encode to latent space
-- Decode back to IMS space
-- Compute reconstruction error
+1. **Check dependencies**: Ensure all data files exist (especially `name_smiles_embedding_file.csv`)
+2. **Test generation**: Run `sbatch scripts/run_gen_decode_full.sh` to generate samples
+3. **Test visualization**: Run `sbatch scripts/run_final_pca.sh` to create PCA plots
 
 ## Directory Structure
 
@@ -180,21 +173,25 @@ This will:
 │   ├── test_data.feather
 │   ├── train_data.feather
 │   └── name_smiles_embedding_file.csv
-├── models/                        # Trained models
+├── models/                        # Trained diffusion models
 │   ├── diffusion_latent_normalized_best.pt
-│   └── autoencoder_separated.pth
+│   └── diffusion_latent_separated_best.pt
 ├── results/                       # Generated outputs
 │   ├── full_generated_latents.npy
 │   ├── full_generated_spectra.npy
 │   └── full_generated_labels.npy
 ├── images/                        # Visualization outputs
-├── scripts/                       # All Python and shell scripts
-│   ├── train_latent_diffusion.py
-│   ├── generate_and_decode_full.py
-│   ├── gen_pca_final.py
-│   ├── 4f-kjm-*.py               # Evaluation scripts
-│   └── run_*.sh                   # SLURM batch scripts
-└── wandb/                         # Weights & Biases logs
+│   ├── pca_real_vs_diffusion_vs_gaussian_by_chemical.png
+│   └── pca_real_vs_diffusion_by_chemical.png
+├── scripts/                       # Python and SLURM scripts
+│   ├── train_latent_diffusion.py          # Training script
+│   ├── generate_and_decode_full.py        # Generation script
+│   ├── gen_pca_final.py                   # Main PCA visualization
+│   ├── compare_diffusion_gaussian.py      # Comparison visualization
+│   ├── visualize_full_latent_pca.py       # Full latent PCA
+│   ├── create_per_chemical_pca.py         # Per-chemical PCA
+│   └── run_*.sh                           # SLURM batch scripts
+└── logs/                          # SLURM output logs
 
 ```
 
@@ -239,3 +236,29 @@ This code uses pre-trained encoder/decoder models from Cate Dunham's ChemicalDat
 ## Contact
 
 For questions about this code, contact: kjmetzler@wpi.edu
+
+---
+
+## Pipeline Verification Status
+
+**Last Tested**: February 25, 2026
+
+### ✓ Verified Working (Post-Cleanup)
+- **Data Loading**: All required data files present and accessible
+- **External Dependencies**: ChemicalDataGeneration repo and decoder models accessible
+- **Step 1 (Training)**: Script syntax verified (not run due to 6-12 hour runtime)
+- **Step 2 (Generation)**: ✅ Successfully tested - generates 4000 samples in ~8 seconds
+  - Outputs: `results/full_generated_latents.npy`, `results/full_generated_spectra.npy`, `results/full_generated_labels.npy`
+- **Step 3 (PCA Visualization)**: ✅ Successfully tested - creates plots in ~1 minute
+  - Output: `images/pca_real_vs_diffusion_vs_gaussian_by_chemical.png`
+  - Output: `images/pca_real_vs_diffusion_by_chemical.png`
+
+### 📋 Required Setup
+1. Copy SMILES embedding file from ChemicalDataGeneration repo (see Quick Start above)
+2. Ensure trained diffusion model exists: `models/diffusion_latent_normalized_best.pt` or `models/diffusion_latent_separated_best.pt`
+
+### 🚀 Recommended Workflow
+1. Skip Step 1 (training) if model already exists
+2. Run Step 2 (generation) to create fresh synthetic samples
+3. Run Step 3 (PCA visualization) to verify quality
+4. Use additional visualization scripts for deeper analysis
