@@ -1,0 +1,147 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{8}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{}, \showDOI{}, and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showDOI}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showDOI #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showDOI      \undefined \def \showDOI       #1{#1}\fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[Dodds and Baker(2019)]%
+        {dodds2019ion}
+\bibfield{author}{\bibinfo{person}{James~N Dodds} {and} \bibinfo{person}{Erin~S
+  Baker}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Ion mobility spectrometry: fundamental concepts,
+  instrumentation, applications, and the road ahead}.
+\newblock \bibinfo{journal}{\emph{Journal of the American Society for Mass
+  Spectrometry}} \bibinfo{volume}{30}, \bibinfo{number}{11}
+  (\bibinfo{year}{2019}), \bibinfo{pages}{2185--2195}.
+\newblock
+
+
+\bibitem[Dunham et~al\mbox{.}(2024)]%
+        {dunham2024oracle}
+\bibfield{author}{\bibinfo{person}{Cate Dunham}, \bibinfo{person}{Maria
+  Barger}, \bibinfo{person}{Randy Paffenroth}, \bibinfo{person}{Josh Uzarski},
+  {and} \bibinfo{person}{Chia-Wei Tsai}.} \bibinfo{year}{2024}\natexlab{}.
+\newblock \showarticletitle{Oracle Embeddings for Chemical Detection}. In
+  \bibinfo{booktitle}{\emph{2024 International Conference on Machine Learning
+  and Applications (ICMLA)}}. IEEE.
+\newblock
+\urldef\tempurl%
+\url{https://conferences.computer.org/icmlapub24/pdfs/ICMLA2024-1MSqUZZS0oyBeWxCwySuYM/748800a272/748800a272.pdf}
+\showURL{%
+\tempurl}
+\newblock
+\shownote{To appear}.
+
+
+\bibitem[Hershey et~al\mbox{.}(2024)]%
+        {hershey2024rethinking}
+\bibfield{author}{\bibinfo{person}{Quincy Hershey}, \bibinfo{person}{Randy
+  Paffenroth}, \bibinfo{person}{Harsh Pathak}, {and} \bibinfo{person}{Simon
+  Tavener}.} \bibinfo{year}{2024}\natexlab{}.
+\newblock \showarticletitle{Rethinking the Relationship between Recurrent and
+  Non-Recurrent Neural Networks: A Study in Sparsity}.
+\newblock \bibinfo{journal}{\emph{arXiv preprint arXiv:2404.00880}}
+  (\bibinfo{year}{2024}).
+\newblock
+
+
+\bibitem[Hill~Jr et~al\mbox{.}(1990)]%
+        {hill1990ion}
+\bibfield{author}{\bibinfo{person}{Herbert~H Hill~Jr},
+  \bibinfo{person}{William~F Siems}, {and} \bibinfo{person}{Robert~H
+  St.~Louis}.} \bibinfo{year}{1990}\natexlab{}.
+\newblock \showarticletitle{Ion mobility spectrometry}.
+\newblock \bibinfo{journal}{\emph{Analytical Chemistry}} \bibinfo{volume}{62},
+  \bibinfo{number}{23} (\bibinfo{year}{1990}), \bibinfo{pages}{1201A--1209A}.
+\newblock
+
+
+\bibitem[Ho et~al\mbox{.}(2020)]%
+        {ho2020denoising}
+\bibfield{author}{\bibinfo{person}{Jonathan Ho}, \bibinfo{person}{Ajay Jain},
+  {and} \bibinfo{person}{Pieter Abbeel}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Denoising diffusion probabilistic models}.
+\newblock \bibinfo{journal}{\emph{Advances in neural information processing
+  systems}}  \bibinfo{volume}{33} (\bibinfo{year}{2020}),
+  \bibinfo{pages}{6840--6851}.
+\newblock
+
+
+\bibitem[Preuer et~al\mbox{.}(2019)]%
+        {preuer2019frechet}
+\bibfield{author}{\bibinfo{person}{Kristina Preuer}, \bibinfo{person}{Philipp
+  Renz}, \bibinfo{person}{Thomas Unterthiner}, \bibinfo{person}{Sepp
+  Hochreiter}, {and} \bibinfo{person}{G{\"u}nter Klambauer}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Fr{\'e}chet ChemNet Distance: A metric for
+  generative models for molecules in drug design—Supporting Information—}.
+\newblock \bibinfo{journal}{\emph{Deep Learning in Drug Discovery}}
+  (\bibinfo{year}{2019}), \bibinfo{pages}{59}.
+\newblock
+
+
+\bibitem[Ramesh et~al\mbox{.}(2021)]%
+        {ramesh2021zero}
+\bibfield{author}{\bibinfo{person}{Aditya Ramesh}, \bibinfo{person}{Mikhail
+  Pavlov}, \bibinfo{person}{Gabriel Goh}, \bibinfo{person}{Scott Gray},
+  \bibinfo{person}{Chelsea Voss}, \bibinfo{person}{Alec Radford},
+  \bibinfo{person}{Mark Chen}, {and} \bibinfo{person}{Ilya Sutskever}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Zero-shot text-to-image generation}. In
+  \bibinfo{booktitle}{\emph{International conference on machine learning}}.
+  Pmlr, \bibinfo{pages}{8821--8831}.
+\newblock
+
+
+\bibitem[Vadakedath et~al\mbox{.}(2022)]%
+        {Vadakedath2022MS}
+\bibfield{author}{\bibinfo{person}{Sabitha Vadakedath},
+  \bibinfo{person}{Venkataramana Kandi}, \bibinfo{person}{Vikram Godishala},
+  \bibinfo{person}{Venkata Bharat~Kumar Pinnelli}, \bibinfo{person}{Samar~Sami
+  Alkafaas}, {and} \bibinfo{person}{Sara~Sami EIkafas}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{The Principle, Types, and Applications of Mass
+  Spectrometry: A Comprehensive Review}.
+\newblock \bibinfo{journal}{\emph{Biomedicine and Biotechnology}}
+  \bibinfo{volume}{7}, \bibinfo{number}{1} (\bibinfo{year}{2022}),
+  \bibinfo{pages}{6--22}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.12691/bb-7-1-2}
+\showDOI{\tempurl}
+
+
+\end{thebibliography}
