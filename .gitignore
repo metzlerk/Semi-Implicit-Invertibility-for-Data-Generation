@@ -135,7 +135,7 @@ logs/
 *.json
 slurm-*.out
 *.wandb
-*.txt
+
 *.npy
 *.md
 *.pth

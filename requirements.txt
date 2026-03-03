@@ -1,0 +1,14 @@
+# Core ML Dependencies
+torch==2.7.0
+numpy==2.2.6
+pandas==2.2.3
+scikit-learn==1.6.1
+
+# Visualization
+matplotlib==3.10.0
+
+# Experiment Tracking
+wandb==0.22.2
+
+# Utilities
+tqdm==4.66.4

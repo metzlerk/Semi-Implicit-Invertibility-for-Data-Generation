@@ -226,4 +226,4 @@ np.save(os.path.join(RESULTS_DIR, 'full_generated_latents.npy'), all_latents)
 np.save(os.path.join(RESULTS_DIR, 'full_generated_spectra.npy'), all_spectra)
 np.save(os.path.join(RESULTS_DIR, 'full_generated_labels.npy'), all_labels)
 
-print(f"\n✓ Saved to results/full_generated_*.npy")
+print(f"\nSaved to results/full_generated_*.npy")
