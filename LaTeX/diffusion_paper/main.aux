@@ -20,7 +20,7 @@
 \citation{bengio2013representation}
 \citation{dunham2024oracle}
 \citation{preuer2019frechet}
-\citation{ho2020denoising,song2021scorebased}
+\citation{ho2020denoising}
 \@writefile{toc}{\contentsline {section}{Abstract}{1}{section*.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {1.1}The Manifold Hypothesis and Latent Representations}{1}{subsection.1.1}\protected@file@percent }
@@ -40,42 +40,43 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Decoupled Autoencoders with Chemical Embeddings}{2}{subsection.2.2}\protected@file@percent }
 \citation{Sohl-DicksteinW15}
 \citation{Sohl-DicksteinW15,ho2020denoising}
-\citation{salimans2022progressive}
-\citation{nichol2021improved}
-\citation{song2021denoising}
+\citation{ho2020denoising}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Diffusion Models}{3}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}X$_0$ Prediction: Direct Manifold Supervision}{3}{subsection.2.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {3}Method}{3}{section.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}X$_0$ Prediction Diffusion in Latent Space}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Separation-Guided Diffusion in Latent Space}{3}{subsection.3.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.1}Architecture}{3}{subsubsection.3.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.2}Training}{3}{subsubsection.3.1.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.3}Sampling via DDIM}{3}{subsubsection.3.1.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Class-Conditioned Multi-Chemical Generation}{3}{subsection.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4}Results}{3}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Statistical Validation}{3}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.2}Training with Separation Loss}{3}{subsubsection.3.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.3}Sampling via DDPM}{3}{subsubsection.3.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Class-Conditioned Multi-Chemical Generation}{4}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Results}{4}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Statistical Validation}{4}{subsection.4.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Geometric Validation: Manifold Structure Preservation}{4}{subsection.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Comparison to Noise Prediction}{4}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}The Role of Separation Loss}{4}{subsection.4.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Decoded Spectra Quality}{4}{subsection.4.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {5}Discussion}{4}{section.5}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.1}The Importance of Natural Manifold Structure}{4}{subsection.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}X$_0$ Prediction as Direct Manifold Learning}{4}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Implications for Low-Data Scientific Domains}{4}{subsection.5.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces X$_0$ Prediction Diffusion: Per-Chemical Latent Statistics\relax }}{5}{table.caption.4}\protected@file@percent }
-\newlabel{tab:ims-statistics}{{1}{5}{X$_0$ Prediction Diffusion: Per-Chemical Latent Statistics\relax }{table.caption.4}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Per-chemical PCA visualization of real (blue) vs. generated (red) latent samples. Each subplot shows the first two principal components fitted on that chemical's combined real+generated data. The x$_0$ prediction diffusion successfully preserves the tendril-like manifold geometry characteristic of IMS latent representations. Explained variance ratios indicate chemical-specific dimensionality: JP8's near-linear structure (84.0\% PC1) contrasts with DPM's more distributed representation (37.5\% PC1, 23.7\% PC2). Generated samples faithfully follow these natural geometric structures rather than collapsing to isotropic Gaussian distributions.\relax }}{5}{figure.caption.5}\protected@file@percent }
-\newlabel{fig:per-chemical-pca}{{2}{5}{Per-chemical PCA visualization of real (blue) vs. generated (red) latent samples. Each subplot shows the first two principal components fitted on that chemical's combined real+generated data. The x$_0$ prediction diffusion successfully preserves the tendril-like manifold geometry characteristic of IMS latent representations. Explained variance ratios indicate chemical-specific dimensionality: JP8's near-linear structure (84.0\% PC1) contrasts with DPM's more distributed representation (37.5\% PC1, 23.7\% PC2). Generated samples faithfully follow these natural geometric structures rather than collapsing to isotropic Gaussian distributions.\relax }{figure.caption.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Limitations and Future Work}{5}{subsection.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Separation Loss as Geometric Regularization}{4}{subsection.5.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Separation-Guided Diffusion: Per-Chemical Latent Statistics\relax }}{5}{table.caption.4}\protected@file@percent }
+\newlabel{tab:ims-statistics}{{1}{5}{Separation-Guided Diffusion: Per-Chemical Latent Statistics\relax }{table.caption.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Per-chemical PCA visualization of real (blue) vs. generated (red) latent samples. Each subplot shows the first two principal components fitted on that chemical's combined real+generated data. The separation-guided diffusion successfully preserves the tendril-like manifold geometry characteristic of IMS latent representations. Explained variance ratios indicate chemical-specific dimensionality: JP8's near-linear structure (84.0\% PC1) contrasts with DPM's more distributed representation (37.5\% PC1, 23.7\% PC2). Generated samples faithfully follow these natural geometric structures rather than collapsing to isotropic Gaussian distributions, demonstrating that explicit separation guidance maintains inter-class structure while respecting manifold geometry.\relax }}{5}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:per-chemical-pca}{{2}{5}{Per-chemical PCA visualization of real (blue) vs. generated (red) latent samples. Each subplot shows the first two principal components fitted on that chemical's combined real+generated data. The separation-guided diffusion successfully preserves the tendril-like manifold geometry characteristic of IMS latent representations. Explained variance ratios indicate chemical-specific dimensionality: JP8's near-linear structure (84.0\% PC1) contrasts with DPM's more distributed representation (37.5\% PC1, 23.7\% PC2). Generated samples faithfully follow these natural geometric structures rather than collapsing to isotropic Gaussian distributions, demonstrating that explicit separation guidance maintains inter-class structure while respecting manifold geometry.\relax }{figure.caption.5}{}}
 \bibstyle{ACM-Reference-Format}
 \bibdata{bibliography}
-\bibcite{dunham2024oracle}{{1}{2024}{{Dunham et~al\mbox  {.}}}{{}}}
-\bibcite{hill1990ion}{{2}{1990}{{Hill~Jr et~al\mbox  {.}}}{{}}}
-\bibcite{ho2020denoising}{{3}{2020}{{Ho et~al\mbox  {.}}}{{}}}
-\bibcite{preuer2019frechet}{{4}{2019}{{Preuer et~al\mbox  {.}}}{{}}}
+\bibcite{bengio2013representation}{{1}{2013}{{Bengio et~al\mbox  {.}}}{{}}}
+\bibcite{dodds2019ion}{{2}{2019}{{Dodds and Baker}}{{}}}
+\bibcite{dunham2024oracle}{{3}{2024}{{Dunham et~al\mbox  {.}}}{{}}}
+\bibcite{hill1990ion}{{4}{1990}{{Hill~Jr et~al\mbox  {.}}}{{}}}
+\bibcite{ho2020denoising}{{5}{2020}{{Ho et~al\mbox  {.}}}{{}}}
+\bibcite{kingma2014auto}{{6}{2014}{{Kingma and Welling}}{{}}}
+\bibcite{preuer2019frechet}{{7}{2019}{{Preuer et~al\mbox  {.}}}{{}}}
+\bibcite{Sohl-DicksteinW15}{{8}{2015}{{Sohl{-}Dickstein et~al\mbox  {.}}}{{}}}
 \newlabel{tocindent-1}{0pt}
 \newlabel{tocindent0}{0pt}
 \newlabel{tocindent1}{4.185pt}
 \newlabel{tocindent2}{10.34999pt}
 \newlabel{tocindent3}{18.198pt}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Implications for Low-Data Scientific Domains}{6}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Limitations and Future Work}{6}{subsection.5.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion}{6}{section.6}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{References}{6}{section*.7}\protected@file@percent }
 \newlabel{TotPages}{{6}{6}{}{page.6}{}}
