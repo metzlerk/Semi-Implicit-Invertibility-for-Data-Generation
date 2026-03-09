@@ -142,6 +142,7 @@ slurm-*.out
 *.png
 *.csv
 *.pt
+models/*
 
 # Exceptions - keep essential documentation and configs
 !README.md
