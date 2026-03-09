@@ -1,14 +1,18 @@
 # Core ML Dependencies
-torch==2.7.0
-numpy==2.2.6
-pandas==2.2.3
-scikit-learn==1.6.1
+torch>=2.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
 
 # Visualization
-matplotlib==3.10.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Data Format Support
+pyarrow>=12.0.0  # For reading .feather files
 
 # Experiment Tracking
-wandb==0.22.2
+wandb>=0.15.0  # Optional - can be disabled with WANDB_MODE=disabled
 
 # Utilities
-tqdm==4.66.4
+tqdm>=4.65.0

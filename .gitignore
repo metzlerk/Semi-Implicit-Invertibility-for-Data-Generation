@@ -137,8 +137,12 @@ slurm-*.out
 *.wandb
 
 *.npy
-*.md
 *.pth
 *.feather
 *.png
-*.csv*.pt
+*.csv
+*.pt
+
+# Exceptions - keep essential documentation and configs
+!README.md
+!requirements.txt
