@@ -19,38 +19,46 @@ def print_with_timestamp(message):
     print(f"{elapsed_time()}: {message}", flush=True)
 
 print_with_timestamp("Loading data...")
-cate_data = pd.read_feather('/home/kjmetzler/synthetic_train_spectra_subset.feather')
-kevin_data = pd.read_csv('/home/kjmetzler/generated_synthetic_data.csv')
 testing = pd.read_feather('/home/kjmetzler/test_data_subset.feather')
 real_data = pd.read_feather('/home/kjmetzler/train_data_subset.feather')
 
-# One-hot encoding
-def one_hot_encode(df, label_col):
-    one_hot_labels = pd.get_dummies(df[label_col]).astype(int)
-    df.drop(label_col, axis=1, inplace=True)
-    return df, one_hot_labels
+# Load synthetic datasets from numpy files
+print_with_timestamp("Loading synthetic datasets...")
+class_names = ['DEB', 'DEM', 'DMMP', 'DPM', 'DtBP', 'JP8', 'MES', 'TEPO']
 
-print_with_timestamp("One-hot encoding test data...")
-cate_data, cate_one_hot_labels = one_hot_encode(cate_data, 'Label')
-cate_data = pd.concat([cate_data, cate_one_hot_labels], axis=1)
+def load_synthetic_data(spectra_path, labels_path):
+    spectra = np.load(spectra_path)
+    labels = np.load(labels_path)
+    
+    # Create DataFrame with features
+    df = pd.DataFrame(spectra)
+    
+    # One-hot encode labels
+    one_hot = np.zeros((len(labels), len(class_names)))
+    for i, label in enumerate(labels):
+        one_hot[i, label] = 1
+    one_hot_df = pd.DataFrame(one_hot, columns=class_names)
+    
+    # Concatenate features and one-hot labels
+    return pd.concat([df, one_hot_df], axis=1)
 
-kevin_data, kevin_one_hot_labels = one_hot_encode(kevin_data, 'Label')
-kevin_data = pd.concat([kevin_data, kevin_one_hot_labels], axis=1)
-kevin_data = kevin_data.drop(columns=['1684','1683','1682','1681','1680','1679','1678','1677','1676'], axis=1)
-# Rename the last 8 columns to the specified names
-kevin_data.rename(columns={kevin_data.columns[-8]: 'DEB', 
-                           kevin_data.columns[-7]: 'DEM', 
-                           kevin_data.columns[-6]: 'DMMP', 
-                           kevin_data.columns[-5]: 'DPM', 
-                           kevin_data.columns[-4]: 'DtBP', 
-                           kevin_data.columns[-3]: 'JP8', 
-                           kevin_data.columns[-2]: 'MES', 
-                           kevin_data.columns[-1]: 'TEPO'}, inplace=True)
+std1_data = load_synthetic_data(
+    '/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results/generated_spectra_std1.0.npy',
+    '/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results/generated_labels_std1.0.npy'
+)
+std15_data = load_synthetic_data(
+    '/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results/generated_spectra_std1.5.npy',
+    '/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results/generated_labels_std1.5.npy'
+)
+std2_data = load_synthetic_data(
+    '/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results/generated_spectra_std2.0.npy',
+    '/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results/generated_labels_std2.0.npy'
+)
 
 testing = testing.drop(columns=['Unnamed: 0', 'index', 'Label'], axis=1)
 real_data = real_data.drop(columns=['Unnamed: 0', 'index', 'Label'], axis=1)
 
-label_size = cate_one_hot_labels.shape[1]
+label_size = len(class_names)
 data_size = real_data.shape[1] - label_size
 
 # Random Forest Classifier
@@ -114,74 +122,50 @@ def run_tests(real_data, synthetic_data, test_data, num_points_per_class, ratios
 num_points_per_class = np.arange(1, 51)
 ratios = np.linspace(0, 1, 11)
 
-print_with_timestamp("Running tests for Random Forest with Cate's Synthetic Data...")
-results_rf = run_tests(real_data, cate_data, testing, num_points_per_class, ratios, train_and_evaluate_rf)
-num_points_rf, ratios_rf, accuracies_rf, num_datapoints_rf = zip(*results_rf)
+# Test all three synthetic datasets
+synthetic_datasets = [
+    (std1_data, 'std1.0', 'Synthetic Data (std=1.0)'),
+    (std15_data, 'std1.5', 'Synthetic Data (std=1.5)'),
+    (std2_data, 'std2.0', 'Synthetic Data (std=2.0)')
+]
 
-# Plot the results for Random Forest with Cate's Synthetic Data
-plt.figure(figsize=(10, 6))
-colors = plt.cm.tab20(np.linspace(0, 1, len(np.unique(ratios_rf))))
-for i, ratio in enumerate(np.unique(ratios_rf)):
-    mask = np.array(ratios_rf) == ratio
-    plt.plot(np.array(num_points_rf)[mask], np.array(accuracies_rf)[mask], marker='o', label=f'Ratio {ratio:.1f}', color=colors[i])
-plt.xlabel('Total Number of Datapoints per Class')
-plt.ylabel('Accuracy')
-plt.title('Random Forest: Accuracy vs. Number of Datapoints per Class')
-plt.legend()
-plt.grid(True)
-plt.savefig('/home/kjmetzler/random_forest_accuracy_Cate.png')
-plt.show()
+for syn_data, std_label, title_label in synthetic_datasets:
+    # Random Forest
+    print_with_timestamp(f"Running tests for Random Forest with {title_label}...")
+    results_rf = run_tests(real_data, syn_data, testing, num_points_per_class, ratios, train_and_evaluate_rf)
+    num_points_rf, ratios_rf, accuracies_rf, num_datapoints_rf = zip(*results_rf)
+    
+    plt.figure(figsize=(10, 6))
+    colors = plt.cm.tab20(np.linspace(0, 1, len(np.unique(ratios_rf))))
+    for i, ratio in enumerate(np.unique(ratios_rf)):
+        mask = np.array(ratios_rf) == ratio
+        plt.plot(np.array(num_points_rf)[mask], np.array(accuracies_rf)[mask], marker='o', label=f'Ratio {ratio:.1f}', color=colors[i])
+    plt.xlabel('Total Number of Datapoints per Class')
+    plt.ylabel('Accuracy')
+    plt.title(f'Random Forest: {title_label}')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'/home/kjmetzler/random_forest_accuracy_{std_label}.png')
+    plt.close()
+    print_with_timestamp(f"Saved plot: random_forest_accuracy_{std_label}.png")
+    
+    # MLP
+    print_with_timestamp(f"Running tests for MLP with {title_label}...")
+    results_mlp = run_tests(real_data, syn_data, testing, num_points_per_class, ratios, train_and_evaluate_mlp)
+    num_points_mlp, ratios_mlp, accuracies_mlp, num_datapoints_mlp = zip(*results_mlp)
+    
+    plt.figure(figsize=(10, 6))
+    colors = plt.cm.tab20(np.linspace(0, 1, len(np.unique(ratios_mlp))))
+    for i, ratio in enumerate(np.unique(ratios_mlp)):
+        mask = np.array(ratios_mlp) == ratio
+        plt.plot(np.array(num_points_mlp)[mask], np.array(accuracies_mlp)[mask], marker='o', label=f'Ratio {ratio:.1f}', color=colors[i])
+    plt.xlabel('Total Number of Datapoints per Class')
+    plt.ylabel('Accuracy')
+    plt.title(f'MLP: {title_label}')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'/home/kjmetzler/mlp_accuracy_{std_label}.png')
+    plt.close()
+    print_with_timestamp(f"Saved plot: mlp_accuracy_{std_label}.png")
 
-print_with_timestamp("Running tests for MLP with Cate's Synthetic Data...")
-results_mlp = run_tests(real_data, cate_data, testing, num_points_per_class, ratios, train_and_evaluate_mlp)
-num_points_mlp, ratios_mlp, accuracies_mlp, num_datapoints_mlp = zip(*results_mlp)
-
-# Plot the results for MLP with Cate's Synthetic Data
-plt.figure(figsize=(10, 6))
-colors = plt.cm.tab20(np.linspace(0, 1, len(np.unique(ratios_mlp))))
-for i, ratio in enumerate(np.unique(ratios_mlp)):
-    mask = np.array(ratios_mlp) == ratio
-    plt.plot(np.array(num_points_mlp)[mask], np.array(accuracies_mlp)[mask], marker='o', label=f'Ratio {ratio:.1f}', color=colors[i])
-plt.xlabel('Total Number of Datapoints per Class')
-plt.ylabel('Accuracy')
-plt.title('MLP: Accuracy vs. Number of Datapoints per Class')
-plt.legend()
-plt.grid(True)
-plt.savefig('/home/kjmetzler/mlp_accuracy_Cate.png')
-plt.show()
-
-print_with_timestamp("Running tests for Random Forest with Kevin's Synthetic Data...")
-results_rf_output = run_tests(real_data, kevin_data, testing, num_points_per_class, ratios, train_and_evaluate_rf)
-num_points_rf_output, ratios_rf_output, accuracies_rf_output, num_datapoints_rf_output = zip(*results_rf_output)
-
-# Plot the results for Random Forest with Kevin's Synthetic Data
-plt.figure(figsize=(10, 6))
-colors = plt.cm.tab20(np.linspace(0, 1, len(np.unique(ratios_rf_output))))
-for i, ratio in enumerate(np.unique(ratios_rf_output)):
-    mask = np.array(ratios_rf_output) == ratio
-    plt.plot(np.array(num_points_rf_output)[mask], np.array(accuracies_rf_output)[mask], marker='o', label=f'Ratio {ratio:.1f}', color=colors[i])
-plt.xlabel('Total Number of Datapoints per Class')
-plt.ylabel('Accuracy')
-plt.title('Random Forest with Synthetic Data from Output: Accuracy vs. Number of Datapoints per Class')
-plt.legend()
-plt.grid(True)
-plt.savefig('/home/kjmetzler/random_forest_accuracy_Kevin.png')
-plt.show()
-
-print_with_timestamp("Running tests for MLP with Kevin's Synthetic Data...")
-results_mlp_output = run_tests(real_data, kevin_data, testing, num_points_per_class, ratios, train_and_evaluate_mlp)
-num_points_mlp_output, ratios_mlp_output, accuracies_mlp_output, num_datapoints_mlp_output = zip(*results_mlp_output)
-
-# Plot the results for MLP with Kevin's Synthetic Data
-plt.figure(figsize=(10, 6))
-colors = plt.cm.tab20(np.linspace(0, 1, len(np.unique(ratios_mlp_output))))
-for i, ratio in enumerate(np.unique(ratios_mlp_output)):
-    mask = np.array(ratios_mlp_output) == ratio
-    plt.plot(np.array(num_points_mlp_output)[mask], np.array(accuracies_mlp_output)[mask], marker='o', label=f'Ratio {ratio:.1f}', color=colors[i])
-plt.xlabel('Total Number of Datapoints per Class')
-plt.ylabel('Accuracy')
-plt.title('MLP with Synthetic Data from Output: Accuracy vs. Number of Datapoints per Class')
-plt.legend()
-plt.grid(True)
-plt.savefig('/home/kjmetzler/mlp_accuracy_Kevin.png')
-plt.show()
+print_with_timestamp("All tests complete!")
