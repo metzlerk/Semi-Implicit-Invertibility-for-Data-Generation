@@ -147,3 +147,5 @@ models/*
 # Exceptions - keep essential documentation and configs
 !README.md
 !requirements.txt
+*.err
+*.out
