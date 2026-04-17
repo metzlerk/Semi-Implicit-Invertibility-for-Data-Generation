@@ -440,7 +440,7 @@ For questions about this code:
 
 ## Pipeline Verification Status
 
-**Last Updated**: March 9, 2026
+**Last Updated**: April 17, 2026
 
 ### Verified Working
 - **Setup**: File copying from `/scratch/kjmetzler/diffusion_essentials/` tested
