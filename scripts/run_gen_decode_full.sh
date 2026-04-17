@@ -10,7 +10,14 @@
 #SBATCH --output=/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/logs/gen_decode_full_%j.out
 #SBATCH --error=/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/logs/gen_decode_full_%j.err
 
+set -euo pipefail
+
+source /home/kjmetzler/miniconda3/etc/profile.d/conda.sh
+conda activate base
+export LD_LIBRARY_PATH=/home/kjmetzler/miniconda3/lib:${LD_LIBRARY_PATH:-}
+
 cd /home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation
+mkdir -p logs
 
 echo "Generating samples and decoding to spectra..."
 echo "Time: $(date)"

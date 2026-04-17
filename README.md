@@ -4,7 +4,7 @@ This repository contains code for generating synthetic Ion Mobility Spectrometry
 
 ## Quick Start
 
-If you just want to test the generation and visualization (training already complete):
+If you just want to test the generation and visualization (training already complete) (This also assumes you are on the WPI Turing cluster):
 
 ```bash
 # 1. Setup required files (one-time only)
@@ -44,13 +44,13 @@ The pipeline consists of three main stages:
 - seaborn
 
 ### Required Data Files
-All data files should be in the `Data/` directory. These are available in `/scratch/kjmetzler/diffusion_essentials/`:
+All data files should be in the `Data/` directory. These are available in `/scratch/kjmetzler/diffusion_essentials/` if you are on the WPI Turing cluster:
 - `test_data.feather`: Test IMS spectra (354 MB, 74,173 samples)
 - `train_data.feather`: Training IMS spectra (1.1 GB, 222,519 samples)
 - `name_smiles_embedding_file.csv`: Pre-computed ChemNet SMILES embeddings for 8 chemicals (53 KB)
 
 ### Required Model Files
-Models should be in the `models/` directory. These are available in `/scratch/kjmetzler/diffusion_essentials/`:
+Models should be in the `models/` directory. These are available in `/scratch/kjmetzler/diffusion_essentials/` on the Turing cluster:
 - `diffusion_latent_normalized_best.pt`: Pre-trained diffusion model (11 MB)
 - `autoencoder_separated.pth`: Pre-trained decoder for IMS spectra (90 MB)
 
@@ -78,7 +78,7 @@ python3 scripts/train_normalized_diffusion.py --beta_end 0.02
 - Logs metrics to Weights & Biases
 
 **Key features:**
-- **Separation-guided loss**: Combines noise prediction (80%) with inter-class separation loss (20%, margin=5.0)
+- **Geometry-preserving loss**: Combines noise prediction (80%) with inter-class separation loss (20%, margin=5.0)
 - **Prevents mode collapse**: Maintains chemical distinctness during generation
 - **Preserves manifold structure**: Designed for non-Gaussian latent spaces
 
@@ -143,6 +143,8 @@ x_t = torch.randn(n_samples, 512, device=device) * 2.0
 
 **Recommendation:** Start with \sigma=1.0, increase to 1.5 if you need more chemical diversity in generated samples.
 
+Update 4/17/2026: We've found that 1.5 provides the most utility in classifier training so far.
+
 ### Step 3: Visualize Results with PCA
 
 Create PCA plots comparing real vs generated samples:
@@ -163,6 +165,11 @@ python3 scripts/gen_pca_final.py
   - Real vs Diffusion generated samples
   - Real vs Gaussian generated samples
   - Chemical separation in latent space
+
+**Prerequisite:** `results/autoencoder_test_latent.npy` must exist for real-latent PCA comparison. If missing, regenerate it with:
+```bash
+sbatch scripts/run_regenerate_test_latents.sh
+```
 
 **Expected runtime:** ~1-2 minutes
 
@@ -314,6 +321,13 @@ BATCH_SIZE = 128  # Or lower
 x_t = torch.randn(n_samples, 512, device=device) * 1.5  # or 2.0
 ```
 
+### Issue: `FileNotFoundError: results/autoencoder_test_latent.npy`
+**Solution:** Regenerate test latents, then rerun PCA:
+```bash
+sbatch scripts/run_regenerate_test_latents.sh
+sbatch scripts/run_final_pca.sh
+```
+
 ## Key Parameters
 
 ### Diffusion Training (`train_normalized_diffusion.py`)
@@ -338,7 +352,7 @@ x_t = torch.randn(n_samples, 512, device=device) * 1.5  # or 2.0
 
 ## Available Pre-trained Models
 
-Located in `/scratch/kjmetzler/diffusion_essentials/`:
+Located in `/scratch/kjmetzler/diffusion_essentials/` on the Turing cluster:
 
 ### Diffusion Model
 - **`diffusion_latent_normalized_best.pt`** (11 MB)
@@ -374,7 +388,7 @@ The model generates samples for 8 chemical compounds:
 
 ## Methodology
 
-### Separation-Guided Diffusion
+### Geometry-Preserving Diffusion
 
 This work introduces a novel approach to generating synthetic data for non-Gaussian chemical latent spaces:
 
@@ -413,7 +427,7 @@ This work introduces a novel approach to generating synthetic data for non-Gauss
 This code builds on work by Cate Dunham for IMS spectrum generation. The decoder architecture is adapted from her ChemicalDataGeneration repository.
 
 If you use this code, please cite:
-- Metzler, K.J. et al. "Separation-Guided Diffusion for Non-Gaussian Manifolds" (in preparation)
+- Metzler, K.J.D. et al. "Separation-Guided Diffusion for Non-Gaussian Manifolds" (in preparation)
 
 ## Contact
 
