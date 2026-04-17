@@ -183,6 +183,11 @@ Visualize how samples transform through the forward diffusion process:
 python3 scripts/visualize_diffusion_trajectory.py --chemical DEB --beta_end 0.02
 ```
 
+Or run the SLURM wrapper to generate trajectories for both `beta_end=0.02` and `beta_end=0.2`:
+```bash
+sbatch scripts/run_diffusion_trajectory.sh
+```
+
 **Full latent space PCA:**
 ```bash
 python3 scripts/visualize_full_latent_pca.py
@@ -191,6 +196,20 @@ python3 scripts/visualize_full_latent_pca.py
 **Per-chemical PCA:**
 ```bash
 python3 scripts/create_per_chemical_pca.py
+```
+
+### Synthetic Data Evaluation
+
+Evaluate generated synthetic spectra by training downstream classifiers (Random Forest, MLP, SVM) across real/synthetic mix ratios:
+
+```bash
+python3 scripts/4f-kjm-evaluatesynthetic-data.py
+```
+
+For cluster execution:
+
+```bash
+sbatch scripts/run_evaluate_synthetic.sh
 ```
 
 ## Testing the Workflow
@@ -202,6 +221,7 @@ To verify the workflow is working:
 1. **Check dependencies**: Ensure all data files exist (especially `name_smiles_embedding_file.csv`)
 2. **Test generation**: Run `sbatch scripts/run_gen_decode_full.sh` to generate samples
 3. **Test visualization**: Run `sbatch scripts/run_final_pca.sh` to create PCA plots
+4. **Test evaluation (optional)**: Run `sbatch scripts/run_evaluate_synthetic.sh` for synthetic-data utility metrics
 
 ## Directory Structure
 
