@@ -289,7 +289,7 @@ def main():
         '/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results/generated_labels_std2.0.npy',
     )
     cate_data = load_synthetic_data_with_embedded_labels(
-        '/home/kjmetzler/scratch/synthetic_data/CARL/universal_generator_synthetic_test_spectra.feather'
+        '/home/kjmetzler/scratch/CARL/universal_generator/_synthetic_test_spectra.feather'
     )
 
     testing = testing.drop(columns=['Unnamed: 0', 'index', 'Label'], errors='ignore')
