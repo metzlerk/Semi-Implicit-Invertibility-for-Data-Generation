@@ -3,6 +3,8 @@
 Generate samples from trained 8-chemical diffusion and decode to spectra
 """
 
+import argparse
+import json
 import os
 import sys
 import torch
@@ -17,6 +19,118 @@ print(f"Using device: {device}\n")
 MODELS_DIR = 'models'
 RESULTS_DIR = 'results'
 DATA_DIR = 'Data'
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate synthetic IMS spectra from diffusion model.")
+    parser.add_argument(
+        "--model-path",
+        default=os.path.join(MODELS_DIR, "diffusion_latent_normalized_best.pt"),
+        help="Path to diffusion model checkpoint.",
+    )
+    parser.add_argument(
+        "--decoder-path",
+        default=os.path.join(MODELS_DIR, "autoencoder_separated.pth"),
+        help="Path to decoder checkpoint.",
+    )
+    parser.add_argument(
+        "--output-prefix",
+        default="full_generated",
+        help="Prefix for saved numpy outputs in results/.",
+    )
+    parser.add_argument(
+        "--samples-per-class",
+        type=int,
+        default=500,
+        help="Number of synthetic samples to generate per chemical.",
+    )
+    parser.add_argument(
+        "--ddim-steps",
+        type=int,
+        default=100,
+        help="Number of DDIM sampling steps.",
+    )
+    parser.add_argument(
+        "--sigma",
+        type=float,
+        default=1.0,
+        help="Global sampling standard deviation (used when no overrides apply).",
+    )
+    parser.add_argument(
+        "--sigma-by-class",
+        default="",
+        help="Overrides sigma by class. Provide JSON, JSON file path, or 'DEB=1.2,DEM=1.0'.",
+    )
+    parser.add_argument(
+        "--sigma-mode",
+        choices=["fixed", "budget-linear"],
+        default="fixed",
+        help="Sigma policy when not overridden by class.",
+    )
+    parser.add_argument(
+        "--budget",
+        type=float,
+        default=None,
+        help="Points per class budget used for sigma-mode=budget-linear.",
+    )
+    parser.add_argument(
+        "--budget-min",
+        type=float,
+        default=1.0,
+        help="Minimum budget for sigma-mode=budget-linear.",
+    )
+    parser.add_argument(
+        "--budget-max",
+        type=float,
+        default=50.0,
+        help="Maximum budget for sigma-mode=budget-linear.",
+    )
+    parser.add_argument(
+        "--sigma-min",
+        type=float,
+        default=1.0,
+        help="Minimum sigma for sigma-mode=budget-linear.",
+    )
+    parser.add_argument(
+        "--sigma-max",
+        type=float,
+        default=2.0,
+        help="Maximum sigma for sigma-mode=budget-linear.",
+    )
+    return parser.parse_args()
+
+
+def parse_sigma_by_class(raw_value, valid_classes):
+    if not raw_value:
+        return {}
+    if os.path.exists(raw_value):
+        with open(raw_value, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    elif raw_value.strip().startswith("{"):
+        data = json.loads(raw_value)
+    else:
+        data = {}
+        for entry in raw_value.split(","):
+            if not entry.strip():
+                continue
+            name, value = entry.split("=", 1)
+            data[name.strip()] = float(value)
+    unknown = [name for name in data.keys() if name not in valid_classes]
+    if unknown:
+        raise ValueError(
+            f"Unknown class names in --sigma-by-class: {', '.join(sorted(unknown))}"
+        )
+    return {name: float(value) for name, value in data.items()}
+
+
+def budget_sigma(args):
+    if args.budget is None:
+        raise ValueError("--budget is required when --sigma-mode=budget-linear.")
+    if args.budget_max <= args.budget_min:
+        raise ValueError("--budget-max must exceed --budget-min.")
+    frac = (args.budget - args.budget_min) / (args.budget_max - args.budget_min)
+    frac = max(0.0, min(1.0, frac))
+    return args.sigma_min + frac * (args.sigma_max - args.sigma_min)
 
 # Model architecture (must match training)
 class SinusoidalPosEmb(nn.Module):
@@ -114,6 +228,9 @@ class FlexibleNLayersGenerator(nn.Module):
             x = self.bias_layer(x)
         return x
 
+
+args = parse_args()
+
 # Load SMILE embeddings
 print("Loading SMILE embeddings...")
 smile_df = pd.read_csv(os.path.join(DATA_DIR, 'name_smiles_embedding_file.csv'))
@@ -139,8 +256,7 @@ chemicals = list(label_mapping.keys())
 
 # Load diffusion model
 print("Loading diffusion model...")
-checkpoint = torch.load(os.path.join(MODELS_DIR, 'diffusion_latent_normalized_best.pt'), 
-                        map_location=device, weights_only=False)
+checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
 DATA_MEAN = checkpoint['data_mean']
 DATA_STD = checkpoint['data_std']
 print(f"Normalization: mean={DATA_MEAN:.4f}, std={DATA_STD:.4f}")
@@ -152,19 +268,18 @@ model.eval()
 # Load decoder
 print("Loading decoder...")
 decoder = FlexibleNLayersGenerator(init_style='bkg', bkg=torch.zeros(1676), trainable=False).to(device)
-decoder_ckpt = torch.load(os.path.join(MODELS_DIR, 'autoencoder_separated.pth'), 
-                         map_location=device, weights_only=False)
+decoder_ckpt = torch.load(args.decoder_path, map_location=device, weights_only=False)
 decoder.load_state_dict(decoder_ckpt['generator_state_dict'])
 decoder.eval()
 
 # DDIM sampling
 @torch.no_grad()
-def sample_ddim(model, smile_emb, class_onehot, n_samples):
+def sample_ddim(model, smile_emb, class_onehot, n_samples, sigma=1.0, ddim_steps=100):
     model.eval()
-    x_t = torch.randn(n_samples, 512, device=device)
+    x_t = torch.randn(n_samples, 512, device=device) * sigma
     
-    ddim_steps = 100
-    step_size = model.timesteps // ddim_steps
+    ddim_steps = max(1, int(ddim_steps))
+    step_size = max(1, model.timesteps // ddim_steps)
     timesteps = list(range(0, model.timesteps, step_size))
     
     for i in reversed(range(len(timesteps))):
@@ -186,9 +301,15 @@ def sample_ddim(model, smile_emb, class_onehot, n_samples):
     
     return x_t
 
+sigma_by_class = parse_sigma_by_class(args.sigma_by_class, chemicals)
+if args.sigma_mode == "budget-linear":
+    sigma_default = budget_sigma(args)
+else:
+    sigma_default = args.sigma
+
 # Generate samples for each chemical
 print("\nGenerating samples for each chemical...")
-samples_per_class = 500
+samples_per_class = args.samples_per_class
 all_latents = []
 all_spectra = []
 all_labels = []
@@ -201,7 +322,15 @@ for class_idx, chem in enumerate(chemicals):
     class_onehot[:, class_idx] = 1.0
     
     # Generate latents
-    latents_norm = sample_ddim(model, smile_emb, class_onehot, samples_per_class)
+    sigma = sigma_by_class.get(chem, sigma_default)
+    latents_norm = sample_ddim(
+        model,
+        smile_emb,
+        class_onehot,
+        samples_per_class,
+        sigma=sigma,
+        ddim_steps=args.ddim_steps,
+    )
     latents = latents_norm * DATA_STD + DATA_MEAN
     
     # Decode to spectra
@@ -211,7 +340,7 @@ for class_idx, chem in enumerate(chemicals):
     all_spectra.append(spectra)
     all_labels.extend([class_idx] * samples_per_class)
     
-    print(f"mean={latents.mean():.2f}, std={latents.std():.2f}")
+    print(f"sigma={sigma:.2f}, mean={latents.mean():.2f}, std={latents.std():.2f}")
 
 all_latents = np.vstack(all_latents)
 all_spectra = np.vstack(all_spectra)
@@ -222,8 +351,8 @@ print(f"  Latents: {all_latents.shape}")
 print(f"  Spectra: {all_spectra.shape}")
 
 # Save
-np.save(os.path.join(RESULTS_DIR, 'full_generated_latents.npy'), all_latents)
-np.save(os.path.join(RESULTS_DIR, 'full_generated_spectra.npy'), all_spectra)
-np.save(os.path.join(RESULTS_DIR, 'full_generated_labels.npy'), all_labels)
+np.save(os.path.join(RESULTS_DIR, f'{args.output_prefix}_latents.npy'), all_latents)
+np.save(os.path.join(RESULTS_DIR, f'{args.output_prefix}_spectra.npy'), all_spectra)
+np.save(os.path.join(RESULTS_DIR, f'{args.output_prefix}_labels.npy'), all_labels)
 
-print(f"\nSaved to results/full_generated_*.npy")
+print(f"\nSaved to results/{args.output_prefix}_*.npy")

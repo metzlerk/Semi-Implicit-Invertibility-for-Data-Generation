@@ -122,18 +122,23 @@ python3 scripts/generate_and_decode_full.py
 
 ### Controlling Generation Spread
 
-You can control the spread of generated ChemNet points by modifying the sampling distribution variance. By default, sampling starts from N(0,1), but you can increase variance for more diverse samples:
+You can control the spread of generated ChemNet points via CLI flags (no code edits needed). By default, sampling starts from N(0,1), but you can increase variance for more diverse samples:
 
-**In `generate_and_decode_full.py`, modify the sampling line:**
-```python
-# Default: Standard normal
-x_t = torch.randn(n_samples, 512, device=device)
+```bash
+# Global sigma
+sbatch --export=SIGMA=1.5,OUTPUT_PREFIX=full_generated_std1p5 scripts/run_gen_decode_full.sh
+```
 
-# More spread: Sample from N(0, 1.5^2)
-x_t = torch.randn(n_samples, 512, device=device) * 1.5
+Class-specific overrides are supported:
 
-# Even more spread: Sample from N(0, 2^2)
-x_t = torch.randn(n_samples, 512, device=device) * 2.0
+```bash
+sbatch --export=SIGMA_BY_CLASS='DEB=1.2,DEM=1.3,DMMP=1.5' scripts/run_gen_decode_full.sh
+```
+
+Budget-adaptive sigma (linear interpolation between sigma_min and sigma_max):
+
+```bash
+sbatch --export=SIGMA_MODE=budget-linear,BUDGET=10,SIGMA_MIN=1.0,SIGMA_MAX=2.0 scripts/run_gen_decode_full.sh
 ```
 
 **Effect on generation:**
@@ -289,11 +294,6 @@ BATCH_SIZE = 128  # Or lower
 
 ### Issue: "Generated samples lack diversity"
 **Solution:** Increase the sampling distribution variance:
-```python
-# In generate_and_decode_full.py
-x_t = torch.randn(n_samples, 512, device=device) * 1.5  # or 2.0
-```
-
 ## Key Parameters
 
 ### Diffusion Training (`train_normalized_diffusion.py`)
@@ -309,12 +309,13 @@ x_t = torch.randn(n_samples, 512, device=device) * 1.5  # or 2.0
 - `NOISE_WEIGHT = 0.8`: Weight for noise prediction loss
 - `SEPARATION_WEIGHT = 0.2`: Weight for inter-class separation loss
 - `SEPARATION_MARGIN = 5.0`: Minimum distance between class centroids
+- Optional refinements via CLI: `--margin-mode adaptive-percentile`, `--swd-weight`, `--local-align-weight`
 
 ### Generation (`generate_and_decode_full.py`)
 - `samples_per_class = 500`: Number of samples to generate per chemical
 - `ddim_steps = 100`: Number of sampling steps (DDIM acceleration)
 - `timesteps = 1000`: Total diffusion timesteps (cosine schedule)
-- Sampling distribution: N(0,1) by default; multiply by 1.5 or 2.0 for increased diversity
+- Sampling distribution: N(0,1) by default; use `--sigma`, `--sigma-by-class`, or `--sigma-mode budget-linear`
 
 ## Available Pre-trained Models
 

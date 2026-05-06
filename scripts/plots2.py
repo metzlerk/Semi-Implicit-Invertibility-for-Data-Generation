@@ -12,18 +12,33 @@ def axes():
     return {0: plt.subplot2grid((1,2),(0,0),rowspan=1,colspan=1),
             1: plt.subplot2grid((1,2),(0,1),rowspan=1,colspan=1)}
 
-def getdata(filename):
+def slugify(label):
+    cleaned = ''.join(ch.lower() if ch.isalnum() else '_' for ch in str(label))
+    return '_'.join(filter(None, cleaned.split('_')))
+
+
+def classifier_tag(name):
+    base_map = {
+        "RandomForest": "rf",
+        "MLP": "mlp",
+    }
+    return base_map.get(name, slugify(name))
+
+
+def getdata(filename, classifiers=None):
     df = pd.read_csv(filename)
-    data_RF,data_MLP = {},{}
-    classy = ["RandomForest","MLP"]
-    labels = sorted(df["std_label"].dropna().unique())
-    for cl in classy:
-        newdf = df[df["classifier"] == cl]
+    if classifiers is None:
+        classifiers = sorted(df["classifier"].dropna().unique())
+    data_by_classifier = {}
+    for cl in classifiers:
+        class_df = df[df["classifier"] == cl]
+        if class_df.empty:
+            continue
+        labels = sorted(class_df["std_label"].dropna().unique())
+        data_by_classifier[cl] = {}
         for lb in labels:
-            if cl == "RandomForest": data = data_RF
-            if cl == "MLP": data = data_MLP
-            data[lb] = newdf[newdf["std_label"] == lb]
-    return data_RF,data_MLP
+            data_by_classifier[cl][lb] = class_df[class_df["std_label"] == lb]
+    return data_by_classifier
 
 def plotdata(ax,data,ycol_name,skip=None):
     pews = pe.withStroke(foreground="white",linewidth=3)
@@ -46,53 +61,69 @@ def plotshared(ax,ylabel=None,legend_loc=None):
         
 # %% Figures
 def Figure1():
-    data_RF,data_MLP = getdata("plot_data_gain_over_real_only.csv")
+    data = getdata("plot_data_gain_over_real_only.csv")
     ycol_name,skip,ax = "gain_over_real_only",2,axes()
     
-    plotdata(ax[0],data_RF,ycol_name,skip)
-    plotdata(ax[1],data_MLP,ycol_name,skip)
+    plotdata(ax[0],data.get("RandomForest", {}),ycol_name,skip)
+    plotdata(ax[1],data.get("MLP", {}),ycol_name,skip)
     ax[0].set_title("Random Forest: Accuracy Gain vs. Real-Only",fontsize=10)
     ax[1].set_title("MLP: Accuracy Gain vs. Real-Only",fontsize=10)
     plotshared(ax,"accuracy gain")
 
 def Figure2():
-    data_RF,data_MLP = getdata("plot_data_optimal_real_ratio.csv")
+    data = getdata("plot_data_optimal_real_ratio.csv")
     ycol_name,skip,ax = "optimal_real_ratio",None,axes()
     
-    plotdata(ax[0],data_RF,ycol_name,skip)
-    plotdata(ax[1],data_MLP,ycol_name,skip)
+    plotdata(ax[0],data.get("RandomForest", {}),ycol_name,skip)
+    plotdata(ax[1],data.get("MLP", {}),ycol_name,skip)
     ax[0].set_title("Random Forest: Optimal Real-Data Fraction",fontsize=10)
     ax[1].set_title("MLP: Optimal Real-Data Fraction",fontsize=10)
     plotshared(ax,"ratio","center right")
     
 # %% Heatmap functions
+def iter_frames(data):
+    if isinstance(data, dict):
+        for value in data.values():
+            yield from iter_frames(value)
+    elif isinstance(data, (tuple, list)):
+        for value in data:
+            yield from iter_frames(value)
+    else:
+        yield data
+
+
 def minmax(data):
     stats = pd.DataFrame(columns=["min","max"])
-    if type(data) is not tuple: data = data,
-    for dd in data:
-        for k in dd:
-            row = len(stats)
-            stats.loc[row,"min"] = dd[k].min().min()
-            stats.loc[row,"max"] = dd[k].max().max()
+    for frame in iter_frames(data):
+        row = len(stats)
+        stats.loc[row,"min"] = frame.min().min()
+        stats.loc[row,"max"] = frame.max().max()
     return stats["min"].min(),stats["max"].max()
 
 def getacc(dd,ratio=None):
     new_dd = {}
-    for k in dd:
-        df = dd[k].copy()
-        df["real_ratio"] = df["real_ratio"].round(1)
-        df = df.pivot(index="num_points_per_class",
-                      columns="real_ratio",values="accuracy")
-        if ratio is not None: df = df.sub(df[ratio],axis="rows")
-        new_dd[k] = df
+    for classifier_name, std_map in dd.items():
+        new_dd[classifier_name] = {}
+        for k in std_map:
+            df = std_map[k].copy()
+            df["real_ratio"] = df["real_ratio"].round(1)
+            df = df.pivot(index="num_points_per_class",
+                          columns="real_ratio",values="accuracy")
+            if ratio is not None:
+                df = df.sub(df[ratio],axis="rows")
+            new_dd[classifier_name][k] = df
     return new_dd
 
 def compare(dd,ratio,mode):
     new_dd = {}
-    for k in dd:
-        df = dd[k].copy()
-        if mode == "gt": new_dd[k] = df.gt(df[ratio],axis="rows")
-        if mode == "lt": new_dd[k] = df.lt(df[ratio],axis="rows")
+    for classifier_name, std_map in dd.items():
+        new_dd[classifier_name] = {}
+        for k in std_map:
+            df = std_map[k].copy()
+            if mode == "gt":
+                new_dd[classifier_name][k] = df.gt(df[ratio],axis="rows")
+            if mode == "lt":
+                new_dd[classifier_name][k] = df.lt(df[ratio],axis="rows")
     return new_dd
 
 def FigureH(data,*,title,cnorm=None):
@@ -131,6 +162,11 @@ def parse_args():
         help="Path to evaluation CSV from 4f-kjm-evaluatesynthetic-data.py",
     )
     parser.add_argument(
+        "--classifiers",
+        default="",
+        help="Comma-separated classifier names to plot (default: all in CSV).",
+    )
+    parser.add_argument(
         "--out-dir",
         default="/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/results",
         help="Directory to save generated heatmap PNG files.",
@@ -143,17 +179,18 @@ if __name__ == "__main__":
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     
+    classifiers = [c.strip() for c in args.classifiers.split(',') if c.strip()] or None
     ## gets raw data
-    dd_RF,dd_MLP = getdata(args.csv_path)
+    dd = getdata(args.csv_path, classifiers=classifiers)
     
     ## converts to pivot table
-    aa_RF,aa_MLP = getacc(dd_RF),getacc(dd_MLP)
+    aa = getacc(dd)
     
     ## calculates difference relative to rows for ratio=r
-    aad_RF,aad_MLP = getacc(dd_RF,ratio=0),getacc(dd_MLP,ratio=0)
+    aad = getacc(dd,ratio=0)
     
     ## gets normalization values for shared colormap
-    global_minmax = minmax((aa_RF,aa_MLP))
+    global_minmax = minmax(aa)
     
     ## Figures
     
@@ -161,20 +198,22 @@ if __name__ == "__main__":
     # Figure2()
     
     ## accuracy, global colormap
-    FigureH(aa_RF,title="RF | Acc",cnorm=global_minmax)
-    plt.savefig(out_dir / "heatmap_rf_accuracy.png", bbox_inches="tight")
-    plt.close()
-    FigureH(aa_MLP,title="MLP | Acc",cnorm=global_minmax)
-    plt.savefig(out_dir / "heatmap_mlp_accuracy.png", bbox_inches="tight")
-    plt.close()
+    for classifier_name, classifier_data in aa.items():
+        FigureH(classifier_data,title=f"{classifier_name} | Acc",cnorm=global_minmax)
+        plt.savefig(
+            out_dir / f"heatmap_{classifier_tag(classifier_name)}_accuracy.png",
+            bbox_inches="tight",
+        )
+        plt.close()
     
     # ## accuracy difference, independent colormap
-    FigureH(aad_RF,title="RF | \u0394Acc",cnorm="off")
-    plt.savefig(out_dir / "heatmap_rf_delta_accuracy.png", bbox_inches="tight")
-    plt.close()
-    FigureH(aad_MLP,title="MLP | \u0394Acc",cnorm="off")
-    plt.savefig(out_dir / "heatmap_mlp_delta_accuracy.png", bbox_inches="tight")
-    plt.close()
+    for classifier_name, classifier_data in aad.items():
+        FigureH(classifier_data,title=f"{classifier_name} | \u0394Acc",cnorm="off")
+        plt.savefig(
+            out_dir / f"heatmap_{classifier_tag(classifier_name)}_delta_accuracy.png",
+            bbox_inches="tight",
+        )
+        plt.close()
     
     ## examples
     

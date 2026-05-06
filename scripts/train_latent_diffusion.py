@@ -16,6 +16,7 @@ Goals:
 4. Compare to actual SMILE embedding structure
 """
 
+import argparse
 import os
 import torch
 import torch.nn as nn
@@ -296,42 +297,63 @@ def sample_diffusion(model, smile_emb, class_onehot, betas, device, n_samples=10
 # TRAINING
 # =============================================================================
 
-def compute_separation_loss(x_pred, labels, margin=5.0):
-    """
-    Encourage different classes to be far apart in latent space.
-    Computes margin-based contrastive loss on predicted clean latents.
-    """
+def compute_inter_class_dists(x_pred, labels):
     unique_labels = torch.unique(labels)
     if len(unique_labels) < 2:
-        return torch.tensor(0.0, device=x_pred.device)
-    
-    # Compute class centroids
+        return None
+
     centroids = []
     for label in unique_labels:
         mask = labels == label
         if mask.sum() > 0:
             centroids.append(x_pred[mask].mean(dim=0))
-    
+
     if len(centroids) < 2:
-        return torch.tensor(0.0, device=x_pred.device)
-    
+        return None
+
     centroids = torch.stack(centroids)
-    
-    # Compute pairwise distances between centroids
     n_classes = len(centroids)
     distances = torch.cdist(centroids, centroids, p=2)
-    
-    # Mask out diagonal (distance to self)
     mask = ~torch.eye(n_classes, dtype=torch.bool, device=distances.device)
-    inter_class_dists = distances[mask]
-    
-    # Penalize distances below margin (encourage separation)
-    loss = torch.relu(margin - inter_class_dists).mean()
-    
-    return loss
+    return distances[mask]
 
 
-def train_diffusion():
+def compute_separation_loss(inter_class_dists, margin):
+    if inter_class_dists is None or inter_class_dists.numel() == 0:
+        device = margin.device if torch.is_tensor(margin) else 'cpu'
+        return torch.tensor(0.0, device=device)
+    margin_tensor = margin if torch.is_tensor(margin) else torch.tensor(margin, device=inter_class_dists.device)
+    return torch.relu(margin_tensor - inter_class_dists).mean()
+
+
+def compute_sliced_wasserstein_loss(x_pred, x_target, num_projections=64):
+    if num_projections <= 0:
+        return torch.tensor(0.0, device=x_pred.device)
+    projections = torch.randn(num_projections, x_pred.shape[1], device=x_pred.device)
+    projections = projections / (projections.norm(dim=1, keepdim=True) + 1e-8)
+    proj_pred = x_pred @ projections.T
+    proj_target = x_target @ projections.T
+    proj_pred, _ = torch.sort(proj_pred, dim=0)
+    proj_target, _ = torch.sort(proj_target, dim=0)
+    return torch.mean((proj_pred - proj_target) ** 2)
+
+
+def compute_local_alignment_loss(x_pred, x_target, k=5):
+    n_samples = x_pred.shape[0]
+    if k <= 0 or n_samples < 2:
+        return torch.tensor(0.0, device=x_pred.device)
+    k = min(k, n_samples - 1)
+    with torch.no_grad():
+        target_dist = torch.cdist(x_target, x_target, p=2)
+        _, nn_idx = torch.topk(target_dist, k + 1, largest=False)
+        nn_idx = nn_idx[:, 1:]
+        target_nn = target_dist.gather(1, nn_idx)
+    pred_dist = torch.cdist(x_pred, x_pred, p=2)
+    pred_nn = pred_dist.gather(1, nn_idx)
+    return torch.mean((pred_nn - target_nn) ** 2)
+
+
+def train_diffusion(args):
     """Train class-conditioned diffusion model with separation loss"""
     
     # Load data
@@ -360,11 +382,12 @@ def train_diffusion():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, MAX_EPOCHS)
     
     # Beta schedule
-    betas = get_beta_schedule(TIMESTEPS, BETA_START, BETA_END).to(device)
+    betas = get_beta_schedule(TIMESTEPS, args.beta_start, args.beta_end).to(device)
     
     # Initialize wandb
     wandb.init(
         project="ims-latent-diffusion",
+        name=f"latent_beta{args.beta_end:.2f}{f'_{args.model_tag}' if args.model_tag else ''}",
         config={
             "latent_dim": LATENT_DIM,
             "timesteps": TIMESTEPS,
@@ -373,9 +396,19 @@ def train_diffusion():
             "learning_rate": LEARNING_RATE,
             "batch_size": BATCH_SIZE,
             "max_epochs": MAX_EPOCHS,
-            "noise_weight": NOISE_WEIGHT,
-            "separation_weight": SEPARATION_WEIGHT,
-            "separation_margin": SEPARATION_MARGIN,
+            "noise_weight": args.noise_weight,
+            "separation_weight": args.separation_weight,
+            "separation_margin": args.separation_margin,
+            "margin_mode": args.margin_mode,
+            "margin_quantile": args.margin_quantile,
+            "margin_min": args.margin_min,
+            "margin_max": args.margin_max,
+            "swd_weight": args.swd_weight,
+            "swd_projections": args.swd_projections,
+            "local_align_weight": args.local_align_weight,
+            "local_align_k": args.local_align_k,
+            "beta_start": args.beta_start,
+            "beta_end": args.beta_end,
         }
     )
     
@@ -388,6 +421,9 @@ def train_diffusion():
         model.train()
         epoch_noise_loss = 0
         epoch_sep_loss = 0
+        epoch_swd_loss = 0
+        epoch_local_align_loss = 0
+        last_margin_value = args.separation_margin
         
         for batch_latent, batch_smile, batch_onehot, batch_idx in tqdm(train_loader, desc=f"Epoch {epoch+1}/{MAX_EPOCHS}"):
             batch_latent = batch_latent.to(device)
@@ -413,11 +449,37 @@ def train_diffusion():
             alpha_bar_t = alpha_bars[t].reshape(-1, 1)
             x_pred = (x_noisy - torch.sqrt(1 - alpha_bar_t) * predicted_noise) / torch.sqrt(alpha_bar_t)
             
-            # Separation loss
-            sep_loss = compute_separation_loss(x_pred, batch_idx, margin=SEPARATION_MARGIN)
+            # Separation loss (with adaptive margin if requested)
+            inter_class_dists = compute_inter_class_dists(x_pred, batch_idx)
+            if inter_class_dists is not None and args.margin_mode == "adaptive-percentile":
+                margin_value = torch.quantile(inter_class_dists, args.margin_quantile)
+                margin_value = torch.clamp(margin_value, args.margin_min, args.margin_max)
+            else:
+                margin_value = torch.tensor(args.separation_margin, device=x_pred.device)
+            sep_loss = compute_separation_loss(inter_class_dists, margin_value)
+            last_margin_value = float(margin_value.detach().cpu())
+
+            # Optional geometry regularizers
+            swd_loss = (
+                compute_sliced_wasserstein_loss(
+                    x_pred, batch_latent, num_projections=args.swd_projections
+                )
+                if args.swd_weight > 0
+                else torch.tensor(0.0, device=x_pred.device)
+            )
+            local_align_loss = (
+                compute_local_alignment_loss(x_pred, batch_latent, k=args.local_align_k)
+                if args.local_align_weight > 0
+                else torch.tensor(0.0, device=x_pred.device)
+            )
             
             # Combined loss
-            loss = NOISE_WEIGHT * noise_loss + SEPARATION_WEIGHT * sep_loss
+            loss = (
+                args.noise_weight * noise_loss
+                + args.separation_weight * sep_loss
+                + args.swd_weight * swd_loss
+                + args.local_align_weight * local_align_loss
+            )
             
             # Backward
             optimizer.zero_grad()
@@ -427,10 +489,23 @@ def train_diffusion():
             
             epoch_noise_loss += noise_loss.item()
             epoch_sep_loss += sep_loss.item()
+            epoch_swd_loss += swd_loss.item()
+            epoch_local_align_loss += local_align_loss.item()
         
         avg_noise_loss = epoch_noise_loss / len(train_loader)
         avg_sep_loss = epoch_sep_loss / len(train_loader)
-        avg_total_loss = NOISE_WEIGHT * avg_noise_loss + SEPARATION_WEIGHT * avg_sep_loss
+        avg_swd_loss = (
+            epoch_swd_loss / len(train_loader) if args.swd_weight > 0 else 0.0
+        )
+        avg_local_align_loss = (
+            epoch_local_align_loss / len(train_loader) if args.local_align_weight > 0 else 0.0
+        )
+        avg_total_loss = (
+            args.noise_weight * avg_noise_loss
+            + args.separation_weight * avg_sep_loss
+            + args.swd_weight * avg_swd_loss
+            + args.local_align_weight * avg_local_align_loss
+        )
         scheduler.step()
         
         # Log
@@ -439,7 +514,10 @@ def train_diffusion():
             "total_loss": avg_total_loss,
             "noise_loss": avg_noise_loss,
             "separation_loss": avg_sep_loss,
-            "learning_rate": scheduler.get_last_lr()[0]
+            "learning_rate": scheduler.get_last_lr()[0],
+            "swd_loss": avg_swd_loss,
+            "local_align_loss": avg_local_align_loss,
+            "margin_value": last_margin_value,
         })
         
         print(f"Epoch {epoch+1}: Total={avg_total_loss:.6f}, Noise={avg_noise_loss:.6f}, Sep={avg_sep_loss:.6f}")
@@ -449,13 +527,14 @@ def train_diffusion():
             best_loss = avg_total_loss
             epochs_without_improvement = 0
             # Include beta_end in filename for ablation study
-            model_name = f'diffusion_latent_separated_beta{BETA_END:.2f}_best.pt'
+            tag = f"_{args.model_tag}" if args.model_tag else ""
+            model_name = f'diffusion_latent_separated_beta{args.beta_end:.2f}{tag}_best.pt'
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': best_loss,
-                'beta_end': BETA_END,
+                'beta_end': args.beta_end,
             }, os.path.join(MODELS_DIR, model_name))
             print(f"  Saved best model to {model_name} (loss: {best_loss:.6f})")
         else:
@@ -477,5 +556,54 @@ def train_diffusion():
     print("\n✓ Training complete!")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train latent diffusion model.")
+    parser.add_argument('--beta-start', type=float, default=BETA_START, help='Beta schedule start.')
+    parser.add_argument('--beta-end', type=float, default=BETA_END, help='Beta schedule end.')
+    parser.add_argument('--noise-weight', type=float, default=NOISE_WEIGHT, help='Weight for noise loss.')
+    parser.add_argument('--separation-weight', type=float, default=SEPARATION_WEIGHT, help='Weight for separation loss.')
+    parser.add_argument('--separation-margin', type=float, default=SEPARATION_MARGIN, help='Base separation margin.')
+    parser.add_argument(
+        '--margin-mode',
+        choices=['fixed', 'adaptive-percentile'],
+        default='fixed',
+        help='Margin selection strategy.',
+    )
+    parser.add_argument(
+        '--margin-quantile',
+        type=float,
+        default=0.2,
+        help='Quantile for adaptive-percentile margin.',
+    )
+    parser.add_argument('--margin-min', type=float, default=0.0, help='Minimum adaptive margin.')
+    parser.add_argument('--margin-max', type=float, default=10.0, help='Maximum adaptive margin.')
+    parser.add_argument('--swd-weight', type=float, default=0.0, help='Weight for sliced Wasserstein loss.')
+    parser.add_argument(
+        '--swd-projections',
+        type=int,
+        default=64,
+        help='Number of random projections for sliced Wasserstein loss.',
+    )
+    parser.add_argument(
+        '--local-align-weight',
+        type=float,
+        default=0.0,
+        help='Weight for local manifold alignment loss.',
+    )
+    parser.add_argument(
+        '--local-align-k',
+        type=int,
+        default=5,
+        help='Number of neighbors for local alignment loss.',
+    )
+    parser.add_argument(
+        '--model-tag',
+        default='',
+        help='Optional tag appended to saved model filenames.',
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    train_diffusion()
+    args = parse_args()
+    train_diffusion(args)
