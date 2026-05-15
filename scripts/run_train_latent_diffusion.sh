@@ -27,6 +27,7 @@ fi
 
 BETA_START="${BETA_START:-0.001}"
 BETA_END="${BETA_END:-0.2}"
+BETA_SCHEDULE="${BETA_SCHEDULE:-linear}"
 NOISE_WEIGHT="${NOISE_WEIGHT:-0.8}"
 SEPARATION_WEIGHT="${SEPARATION_WEIGHT:-0.2}"
 SEPARATION_MARGIN="${SEPARATION_MARGIN:-5.0}"
@@ -43,6 +44,7 @@ MODEL_TAG="${MODEL_TAG:-}"
 python scripts/train_latent_diffusion.py \
     --beta-start "${BETA_START}" \
     --beta-end "${BETA_END}" \
+    --beta-schedule "${BETA_SCHEDULE}" \
     --noise-weight "${NOISE_WEIGHT}" \
     --separation-weight "${SEPARATION_WEIGHT}" \
     --separation-margin "${SEPARATION_MARGIN}" \

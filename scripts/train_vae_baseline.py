@@ -9,6 +9,7 @@ Architecture matches decoupled autoencoder but adds KL regularization.
 """
 
 import os
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -30,6 +31,14 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
+
+# Enforce SLURM submission: prevent accidental local runs on the cluster
+if "SLURM_JOB_ID" not in os.environ:
+    sys.stderr.write(
+        "ERROR: This training script must be submitted via SLURM.\n"
+        "Submit with: sbatch scripts/run_train_vae.sh\n"
+    )
+    sys.exit(1)
 
 # Hyperparameters
 LATENT_DIM = 512

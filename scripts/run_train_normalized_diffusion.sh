@@ -29,6 +29,7 @@ fi
 
 BETA_END="${BETA_END:-0.02}"
 NOISE_WEIGHT="${NOISE_WEIGHT:-0.8}"
+BETA_SCHEDULE="${BETA_SCHEDULE:-linear}"
 SEPARATION_WEIGHT="${SEPARATION_WEIGHT:-0.2}"
 SEPARATION_MARGIN="${SEPARATION_MARGIN:-5.0}"
 MARGIN_MODE="${MARGIN_MODE:-fixed}"
@@ -43,6 +44,7 @@ MODEL_TAG="${MODEL_TAG:-}"
 
 python scripts/train_normalized_diffusion.py \
     --beta_end "${BETA_END}" \
+    --beta-schedule "${BETA_SCHEDULE}" \
     --noise-weight "${NOISE_WEIGHT}" \
     --separation-weight "${SEPARATION_WEIGHT}" \
     --separation-margin "${SEPARATION_MARGIN}" \

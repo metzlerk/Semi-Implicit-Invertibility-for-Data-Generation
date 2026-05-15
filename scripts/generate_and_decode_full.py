@@ -233,24 +233,36 @@ args = parse_args()
 
 # Load SMILE embeddings
 print("Loading SMILE embeddings...")
-smile_df = pd.read_csv(os.path.join(DATA_DIR, 'name_smiles_embedding_file.csv'))
+smile_df = pd.read_csv(os.path.join(DATA_DIR, 'name_smiles_embedding_file.csv'), index_col=0)
 label_mapping = {
-    'DEB': '1,2,3,4-Diepoxybutane',
-    'DEM': 'Diethyl Malonate',
-    'DMMP': 'Dimethyl methylphosphonate',
-    'DPM': 'Oxybispropanol',
-    'DtBP': 'Di-tert-butyl peroxide',
-    'JP8': 'JP8',
-    'MES': '2-(N-morpholino)ethanesulfonic acid',
-    'TEPO': 'Triethyl phosphate'
+    'DEB': ['DEB', '1,2,3,4-Diepoxybutane'],
+    'DEM': ['DEM', 'Diethyl Malonate'],
+    'DMMP': ['DMMP', 'Dimethyl methylphosphonate'],
+    'DPM': ['DPM', 'Oxybispropanol'],
+    'DtBP': ['DtBP', 'Di-tert-butyl peroxide'],
+    'JP8': ['JP8'],
+    'MES': ['MES', '2-(N-morpholino)ethanesulfonic acid'],
+    'TEPO': ['TEPO', 'Triethyl phosphate']
 }
 
+# Build embedding dict using both index and Name column
+embedding_dict = {}
+for idx, row in smile_df.iterrows():
+    if pd.notna(row['embedding']) and row['embedding']:
+        emb_str = row['embedding']
+        embedding = torch.FloatTensor(np.array(ast.literal_eval(emb_str)))
+        # Add entry for index (e.g., 'DEB')
+        embedding_dict[idx] = embedding
+        # Also add entry for Name if different
+        if pd.notna(row['Name']):
+            embedding_dict[row['Name']] = embedding
+
 smile_embeddings = {}
-for short_name, full_name in label_mapping.items():
-    row = smile_df[smile_df['Name'] == full_name]
-    if not row.empty:
-        emb_str = row['embedding'].values[0]
-        smile_embeddings[short_name] = torch.FloatTensor(np.array(ast.literal_eval(emb_str)))
+for short_name, candidates in label_mapping.items():
+    for name in candidates:
+        if name in embedding_dict:
+            smile_embeddings[short_name] = embedding_dict[name]
+            break
 
 chemicals = list(label_mapping.keys())
 

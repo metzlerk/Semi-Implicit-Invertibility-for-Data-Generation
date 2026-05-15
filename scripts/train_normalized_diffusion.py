@@ -26,6 +26,14 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+# Enforce SLURM submission: prevent accidental local runs on the cluster
+if "SLURM_JOB_ID" not in os.environ:
+    sys.stderr.write(
+        "ERROR: This training script must be submitted via SLURM.\n"
+        "Submit with: sbatch scripts/run_train_normalized_diffusion.sh\n"
+    )
+    sys.exit(1)
+
 # =============================================================================
 # MODEL ARCHITECTURE (must match original)
 # =============================================================================
@@ -110,8 +118,20 @@ class ClassConditionedDiffusion(nn.Module):
 
 def load_smile_embeddings():
     """Load pre-computed ChemNet embeddings for each chemical"""
-    smile_df = pd.read_csv(os.path.join(DATA_DIR, 'name_smiles_embedding_file.csv'))
+    smile_df = pd.read_csv(os.path.join(DATA_DIR, 'name_smiles_embedding_file.csv'), index_col=0)
 
+    # Build embedding dict using both index (chemical code) and Name column
+    embedding_dict = {}
+    for idx, row in smile_df.iterrows():
+        # Use both the index (e.g., 'DEB') and the Name column for lookups
+        if pd.notna(row['embedding']) and row['embedding']:
+            embedding = np.array(ast.literal_eval(row['embedding']), dtype=np.float32)
+            # Add entry for index (e.g., 'DEB')
+            embedding_dict[idx] = embedding
+            # Also add entry for Name if different
+            if pd.notna(row['Name']):
+                embedding_dict[row['Name']] = embedding
+    
     label_candidates = {
         'DEB': ['DEB', '1,2,3,4-Diepoxybutane', 'Diethylene glycol dibutyl ether'],
         'DEM': ['DEM', 'Diethyl Malonate', 'Diethylene glycol diethyl ether'],
@@ -122,12 +142,6 @@ def load_smile_embeddings():
         'MES': ['MES', '2-(N-morpholino)ethanesulfonic acid'],
         'TEPO': ['TEPO', 'Triethyl phosphate'],
     }
-
-    embedding_dict = {}
-    for _, row in smile_df.iterrows():
-        if pd.notna(row['embedding']):
-            embedding = np.array(ast.literal_eval(row['embedding']), dtype=np.float32)
-            embedding_dict[row['Name']] = embedding
     
     label_embeddings = {}
     missing = []
@@ -217,8 +231,28 @@ def create_dataloaders(train_latent, train_labels, smile_embeddings, batch_size=
 # =============================================================================
 
 def get_beta_schedule(timesteps, beta_start=0.001, beta_end=0.02):
-    """Linear beta schedule"""
-    return torch.linspace(beta_start, beta_end, timesteps)
+    """Return a beta schedule of length `timesteps`.
+
+    Supports multiple schedule types via global args (linear, cosine, quadratic).
+    """
+    sched = os.environ.get('BETA_SCHEDULE', 'linear')
+    if sched == 'linear':
+        return torch.linspace(beta_start, beta_end, timesteps)
+    elif sched == 'cosine':
+        # cosine schedule adapted from common diffusion papers
+        steps = torch.arange(timesteps + 1, dtype=torch.float32)
+        alphas_cumprod = torch.cos(((steps / timesteps) + 0.008) / 1.008 * np.pi / 2) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+        return torch.clamp(betas, 1e-8, 0.999)
+    elif sched == 'quadratic':
+        # quadratic increase from beta_start to beta_end
+        t = torch.linspace(0.0, 1.0, timesteps)
+        betas = beta_start + (beta_end - beta_start) * (t ** 2)
+        return betas
+    else:
+        # fallback to linear
+        return torch.linspace(beta_start, beta_end, timesteps)
 
 
 def forward_diffusion(x_0, t, betas):
@@ -226,14 +260,49 @@ def forward_diffusion(x_0, t, betas):
     Add noise to x_0 according to timestep t
     q(x_t | x_0) = N(x_t; sqrt(alpha_bar_t) * x_0, (1 - alpha_bar_t) * I)
     """
-    alphas = 1.0 - betas
-    alpha_bars = torch.cumprod(alphas, dim=0)
-    
-    alpha_bar_t = alpha_bars[t].reshape(-1, 1)
+    # Support two shapes for betas:
+    # - (timesteps,) : global schedule
+    # - (num_classes, timesteps) : per-class schedules
     noise = torch.randn_like(x_0)
-    
+
+    if betas.dim() == 1:
+        alphas = 1.0 - betas
+        alpha_bars = torch.cumprod(alphas, dim=0)
+        alpha_bar_t = alpha_bars[t].reshape(-1, 1)
+    else:
+        # betas: [num_classes, timesteps]
+        # t: [B]
+        # we expect caller to provide a `class_idx` as the 4th arg when using per-class betas
+        raise RuntimeError("forward_diffusion with per-class betas must be called via forward_diffusion_per_class")
+
     x_t = torch.sqrt(alpha_bar_t) * x_0 + torch.sqrt(1 - alpha_bar_t) * noise
-    
+
+    return x_t, noise
+
+
+def forward_diffusion_per_class(x_0, t, betas, class_idx):
+    """Forward diffusion that supports per-class beta schedules.
+
+    betas: [num_classes, timesteps]
+    t: [B]
+    class_idx: [B] long tensor with class indices in [0, num_classes)
+    """
+    # betas per class
+    num_classes, timesteps = betas.shape
+    device = x_0.device
+    betas = betas.to(device)
+    # compute alpha_bars per class
+    alphas = 1.0 - betas
+    alpha_bars = torch.cumprod(alphas, dim=1)  # [num_classes, timesteps]
+
+    # gather alpha_bar_t per sample
+    # t may be on device already
+    idx = class_idx.long().to(device)
+    t_idx = t.long().to(device)
+    alpha_bar_t = alpha_bars[idx, t_idx].reshape(-1, 1)
+
+    noise = torch.randn_like(x_0)
+    x_t = torch.sqrt(alpha_bar_t) * x_0 + torch.sqrt(1 - alpha_bar_t) * noise
     return x_t, noise
 
 
@@ -355,7 +424,34 @@ def train_diffusion(args):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, MAX_EPOCHS)
     
     # Beta schedule
-    betas = get_beta_schedule(TIMESTEPS, BETA_START, args.beta_end).to(device)
+    # Compute betas: either global or per-class (for class-specific sigma modes)
+    if args.class_sigma_mode == 'none':
+        betas = get_beta_schedule(TIMESTEPS, BETA_START, args.beta_end).to(device)
+    elif args.class_sigma_mode == 'variance-scaled':
+        # compute class variances in original (unnormalized) space
+        unique_classes = sorted(np.unique(train_labels))
+        class_to_idx = {c: i for i, c in enumerate(unique_classes)}
+        num_classes = len(unique_classes)
+        latent_arr = train_latent  # use original latent stats for variance
+        global_var = float(np.var(latent_arr)) if latent_arr.size else 1.0
+        # compute per-class variance
+        class_vars = []
+        for c in unique_classes:
+            mask = train_labels == c
+            if mask.sum() > 0:
+                class_vars.append(float(np.var(latent_arr[mask])))
+            else:
+                class_vars.append(global_var)
+        class_vars = np.array(class_vars, dtype=np.float32)
+        # scale beta_end per class around args.beta_end
+        scale = args.class_sigma_scale
+        beta_ends = np.clip(args.beta_end * (1.0 + scale * (class_vars / (global_var + 1e-12) - 1.0)),
+                            BETA_START, args.beta_end_max)
+        # build betas per class
+        betas_list = [get_beta_schedule(TIMESTEPS, BETA_START, be).numpy() for be in beta_ends]
+        betas = torch.tensor(np.stack(betas_list, axis=0), dtype=torch.float32).to(device)
+    else:
+        raise ValueError(f"Unknown class_sigma_mode: {args.class_sigma_mode}")
     
     # Initialize wandb
     wandb.login(key="57680a36aa570ba8df25adbdd143df3d0bf6b6e8")
@@ -410,8 +506,14 @@ def train_diffusion(args):
             # Sample random timesteps
             t = torch.randint(0, TIMESTEPS, (len(batch_latent),), device=device)
             
-            # Forward diffusion
-            x_noisy, noise = forward_diffusion(batch_latent, t, betas)
+            # Forward diffusion (support per-class schedules)
+            if args.class_sigma_mode == 'none':
+                x_noisy, noise = forward_diffusion(batch_latent, t, betas)
+            else:
+                # need class indices per sample
+                # map batch_idx values (label ints) to 0..num_classes-1 via class_to_idx
+                class_idx_batch = torch.LongTensor([class_to_idx[int(x)] for x in batch_idx]).to(device)
+                x_noisy, noise = forward_diffusion_per_class(batch_latent, t, betas, class_idx_batch)
             
             # Predict noise
             predicted_noise = model(x_noisy, t, batch_smile, batch_onehot)
@@ -568,6 +670,31 @@ if __name__ == "__main__":
         default='',
         help='Optional tag appended to saved model filenames.',
     )
+    parser.add_argument(
+        '--beta-schedule',
+        choices=['linear', 'cosine', 'quadratic'],
+        default='linear',
+        help='Beta schedule to use for the diffusion process.',
+    )
+    parser.add_argument(
+        '--class-sigma-mode',
+        choices=['none', 'variance-scaled'],
+        default='none',
+        help='If set, use class-specific sigma schedules (variance-scaled).',
+    )
+    parser.add_argument(
+        '--class-sigma-scale',
+        type=float,
+        default=0.5,
+        help='Scale factor for variance-scaled class sigma (0.0 = no change).',
+    )
+    parser.add_argument(
+        '--beta-end-max',
+        type=float,
+        default=0.5,
+        help='Maximum allowed beta_end when using class-specific scaling.',
+    )
     args = parser.parse_args()
+    os.environ['BETA_SCHEDULE'] = args.beta_schedule
     
     train_diffusion(args)

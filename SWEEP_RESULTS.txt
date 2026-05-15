@@ -1,0 +1,54 @@
+================================================================
+SWEEP RESULTS SUMMARY - Wed 06 May 2026 06:27:16 PM EDT
+================================================================
+
+--- Job Status (sacct) ---
+JobID|State|ExitCode|Elapsed|NodeList
+2015646|RUNNING|0:0|00:03:20|gpu-5-27
+
+--- Active Queue ---
+             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+           2015646     short train_di kjmetzle  R       3:20      1 gpu-5-27
+           2015647     short train_di kjmetzle  R       3:20      1 gpu-5-28
+
+--- Saved Models ---
+/home/kjmetzler/Semi-Implicit-Invertibility-for-Data-Generation/models/diffusion_normalized_beta0.02_best.pt (34M)
+
+--- Job Log Summary ---
+Job 2015646: stderr=33 lines
+Job 2015647: stderr=29 lines
+Job 2015648: stderr=26 lines
+Job 2015649: stderr=26 lines
+Job 2015650: stderr=26 lines
+Job 2015651: stderr=26 lines
+Job 2015652: stderr=26 lines
+Job 2015653: stderr=26 lines
+
+--- Recent Errors (first 300 chars per job) ---
+Job 2015646:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+Job 2015647:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+Job 2015648:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+Job 2015649:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+Job 2015650:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+Job 2015651:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+Job 2015652:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+Job 2015653:
+/home/kjmetzler/miniconda3/lib/python3.12/site-packages/pydantic/_internal/_generate_schema.py:2249: UnsupportedFieldAttributeWarning: The 'repr' attribute with value False was provided to the `Field()` function, which has no effect in the context it was used. 'repr' is field-specific metadata, and 
+
+--- W&B Offline Runs (if any) ---
+Found runs: 1
+
+--- Paper Improvements Status ---
+✓ Multi-schedule support: linear, cosine, quadratic
+✓ Class-specific sigma scaling (variance-scaled mode)
+✓ SLURM grid submitter (scripts/submit_sweep.sh)
+✓ W&B sweep template (wandb_sweep.yaml)
+✓ 8-job test sweep submitted (2×2×2 grid)
+

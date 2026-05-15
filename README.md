@@ -4,23 +4,26 @@ This repository contains code for generating synthetic Ion Mobility Spectrometry
 
 ## Quick Start
 
-If you just want to test the generation and visualization (training already complete):
+If you just want to test the generation and visualization (training already complete), follow the SLURM-first steps below.
+
+Important: All training and generation entrypoints are SLURM-protected. Use `sbatch` to submit jobs. Direct `python` invocation of the main training/generation scripts will exit with an error unless you explicitly simulate a SLURM environment for local debugging (see "Local debugging" below).
 
 ```bash
-# 1. Setup required files (one-time only)
+# 1. Copy required files (one-time)
+# (copy from your scratch staging area to the repository workspace)
 cp /scratch/kjmetzler/diffusion_essentials/name_smiles_embedding_file.csv Data/
 cp /scratch/kjmetzler/diffusion_essentials/test_data.feather Data/
-cp /scratch/kjmetzler/diffusion_essentials/train_data.feather Data/
+cp /scratch/kjmetzler/diffusion_essentials/train_data.feather Data/    # only required for training
 cp /scratch/kjmetzler/diffusion_essentials/diffusion_latent_normalized_best.pt models/
 cp /scratch/kjmetzler/diffusion_essentials/autoencoder_separated.pth models/
 
-# 2. Generate synthetic samples (~1-2 min on GPU)
+# 2. Generate synthetic samples (submit to SLURM)
 sbatch scripts/run_gen_decode_full.sh
 
-# 3. Create PCA visualizations (~1 min)
+# 3. Create PCA visualizations (submit to SLURM)
 sbatch scripts/run_final_pca.sh
 
-# 4. Check results
+# 4. Check results (after jobs complete)
 ls -lh results/full_generated_*.npy
 ls -lh images/pca_real_vs_diffusion*.png
 ```
@@ -58,14 +61,19 @@ Models should be in the `models/` directory. These are available in `/scratch/kj
 
 ### Step 1: Train the Diffusion Model
 
-Train a class-conditioned diffusion model on normalized latent representations:
+Train a class-conditioned diffusion model on normalized latent representations (SLURM-first):
 
 ```bash
 sbatch scripts/run_train_latent_diffusion.sh
 ```
 
-Or directly with Python:
+Note: Direct `python` invocation of `scripts/train_normalized_diffusion.py` or other training entrypoints will now refuse to run unless executed inside a SLURM job. This is intentional to prevent accidental local runs on the cluster.
+
+If you need to run locally for development/debugging, simulate a SLURM environment first (development only):
+
 ```bash
+# simulate SLURM for a quick local debug run (development only)
+export SLURM_JOB_ID=local-debug
 python3 scripts/train_normalized_diffusion.py --beta_end 0.02
 ```
 
@@ -93,14 +101,16 @@ python3 scripts/train_normalized_diffusion.py --beta_end 0.02
 
 ### Step 2: Generate Synthetic IMS Samples
 
-Generate synthetic spectra using the trained diffusion model:
+Generate synthetic spectra using the trained diffusion model (SLURM-first):
 
 ```bash
 sbatch scripts/run_gen_decode_full.sh
 ```
 
-Or directly:
+If you must run locally for debugging, simulate SLURM as above:
+
 ```bash
+export SLURM_JOB_ID=local-debug
 python3 scripts/generate_and_decode_full.py
 ```
 
@@ -202,11 +212,20 @@ python3 scripts/create_per_chemical_pca.py
 
 ### Pipeline Verification
 
-To verify the workflow is working:
+To verify the workflow is working (SLURM-first):
 
-1. **Check dependencies**: Ensure all data files exist (especially `name_smiles_embedding_file.csv`)
-2. **Test generation**: Run `sbatch scripts/run_gen_decode_full.sh` to generate samples
-3. **Test visualization**: Run `sbatch scripts/run_final_pca.sh` to create PCA plots
+1. **Check dependencies**: Ensure required data files exist in `Data/` and models in `models/` (see "Required Data Files" and "Required Model Files").
+2. **Dry-run SLURM**: You can validate job submission without executing the job with `sbatch --test-only` (if your Slurm supports it) or call `scontrol show job` after submit to inspect the job. Example dry-run:
+
+```bash
+# Check that the SLURM script is syntactically valid (dry-run)
+sbatch --test-only scripts/run_gen_decode_full.sh
+```
+
+3. **Submit generation**: `sbatch scripts/run_gen_decode_full.sh`
+4. **Submit visualization**: `sbatch scripts/run_final_pca.sh`
+
+5. **Check outputs**: After jobs complete, verify `results/` and `images/` files as above.
 
 ## Directory Structure
 

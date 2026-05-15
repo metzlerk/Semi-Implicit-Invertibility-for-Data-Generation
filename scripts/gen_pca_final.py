@@ -52,33 +52,40 @@ print("\nLoading diffusion model and SMILE embeddings...")
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load SMILE embeddings
-smile_df = pd.read_csv('Data/name_smiles_embedding_file.csv')
+smile_df = pd.read_csv('Data/name_smiles_embedding_file.csv', index_col=0)
 import ast
 
 label_mapping = {
-    'DEB': '1,2,3,4-Diepoxybutane',
-    'DEM': 'Diethyl Malonate',
-    'DMMP': 'Dimethyl methylphosphonate',
-    'DPM': 'Oxybispropanol',
-    'DtBP': 'Di-tert-butyl peroxide',
-    'JP8': 'JP8',
-    'MES': '2-(N-morpholino)ethanesulfonic acid',
-    'TEPO': 'Triethyl phosphate'
+    'DEB': ['DEB', '1,2,3,4-Diepoxybutane'],
+    'DEM': ['DEM', 'Diethyl Malonate'],
+    'DMMP': ['DMMP', 'Dimethyl methylphosphonate'],
+    'DPM': ['DPM', 'Oxybispropanol'],
+    'DtBP': ['DtBP', 'Di-tert-butyl peroxide'],
+    'JP8': ['JP8'],
+    'MES': ['MES', '2-(N-morpholino)ethanesulfonic acid'],
+    'TEPO': ['TEPO', 'Triethyl phosphate']
 }
 
+# Build embedding dict using both index and Name column
 embedding_dict = {}
-for _, row in smile_df.iterrows():
-    if pd.notna(row['embedding']):
+for idx, row in smile_df.iterrows():
+    if pd.notna(row['embedding']) and row['embedding']:
         try:
             embedding = np.array(ast.literal_eval(row['embedding']), dtype=np.float32)
-            embedding_dict[row['Name']] = embedding
+            # Add entry for index (e.g., 'DEB')
+            embedding_dict[idx] = embedding
+            # Also add entry for Name if different
+            if pd.notna(row['Name']):
+                embedding_dict[row['Name']] = embedding
         except:
             pass
 
 smile_embeddings = {}
-for label, full_name in label_mapping.items():
-    if full_name in embedding_dict:
-        smile_embeddings[label] = embedding_dict[full_name]
+for label, candidates in label_mapping.items():
+    for name in candidates:
+        if name in embedding_dict:
+            smile_embeddings[label] = embedding_dict[name]
+            break
 
 # Import diffusion model from training script (without running it)
 import sys
