@@ -5,7 +5,13 @@ import pandas as pd
 def split(in_file, out_train, out_test, temp_col="temp_K", train_quantile=0.8):
     df = pd.read_feather(in_file)
     if temp_col not in df.columns:
-        raise KeyError(f"{temp_col} not in {in_file} columns")
+        candidate_cols = [c for c in df.columns if "temp" in c.lower() or "kelvin" in c.lower()]
+        if len(candidate_cols) == 1:
+            temp_col = candidate_cols[0]
+        elif len(candidate_cols) > 1:
+            temp_col = candidate_cols[0]
+        else:
+            raise KeyError(f"{temp_col} not in {in_file} columns and no temperature-like column found")
     threshold = df[temp_col].quantile(train_quantile)
     train_df = df[df[temp_col] <= threshold].reset_index(drop=True)
     test_df = df[df[temp_col] > threshold].reset_index(drop=True)

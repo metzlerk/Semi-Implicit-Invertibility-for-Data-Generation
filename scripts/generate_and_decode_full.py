@@ -269,19 +269,53 @@ chemicals = list(label_mapping.keys())
 # Load diffusion model
 print("Loading diffusion model...")
 checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
-DATA_MEAN = checkpoint['data_mean']
-DATA_STD = checkpoint['data_std']
-print(f"Normalization: mean={DATA_MEAN:.4f}, std={DATA_STD:.4f}")
+# Some checkpoints (older runs) may not include data mean/std keys.
+# Fall back to (0,1) and warn the user.
+if 'data_mean' in checkpoint and 'data_std' in checkpoint:
+    DATA_MEAN = checkpoint['data_mean']
+    DATA_STD = checkpoint['data_std']
+    print(f"Normalization: mean={DATA_MEAN:.4f}, std={DATA_STD:.4f}")
+else:
+    DATA_MEAN = 0.0
+    DATA_STD = 1.0
+    print("Warning: checkpoint missing 'data_mean'/'data_std'. Using DATA_MEAN=0.0 and DATA_STD=1.0")
 
 model = ClassConditionedDiffusion(512, 512, 8, 1000, 512, 6).to(device)
-model.load_state_dict(checkpoint['model_state_dict'])
+try:
+    model.load_state_dict(checkpoint['model_state_dict'])
+except RuntimeError:
+    # Allow loading when checkpoint/state dicts differ in registered buffers
+    model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+    print("Note: loaded state_dict with strict=False (some buffers/keys mismatched)")
 model.eval()
 
 # Load decoder
 print("Loading decoder...")
 decoder = FlexibleNLayersGenerator(init_style='bkg', bkg=torch.zeros(1676), trainable=False).to(device)
 decoder_ckpt = torch.load(args.decoder_path, map_location=device, weights_only=False)
-decoder.load_state_dict(decoder_ckpt['generator_state_dict'])
+# decoder checkpoints were saved from `train_decoder.py` as `model.state_dict()` for
+# an `nn.Sequential` generator (keys like '0.weight'). Our `FlexibleNLayersGenerator`
+# expects keys under 'generator.*'. Handle both formats.
+gen_state = decoder_ckpt.get('generator_state_dict', None)
+if gen_state is None:
+    # maybe the checkpoint is the state_dict itself
+    gen_state = decoder_ckpt
+
+try:
+    decoder.load_state_dict(gen_state)
+except RuntimeError:
+    # Attempt to remap flat sequential keys (e.g., '0.weight') -> 'generator.0.weight'
+    remapped = {}
+    for k, v in gen_state.items():
+        if k[0].isdigit() or k.split('.', 1)[0].isdigit():
+            remapped[f'generator.{k}'] = v
+        else:
+            remapped[k] = v
+    try:
+        decoder.load_state_dict(remapped, strict=False)
+        print("Note: loaded decoder state_dict after remapping sequential keys to 'generator.*'")
+    except Exception as e:
+        raise
 decoder.eval()
 
 # DDIM sampling

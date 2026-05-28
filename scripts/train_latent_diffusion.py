@@ -190,31 +190,80 @@ def load_smile_embeddings():
 def load_precomputed_latents():
     """Load pre-computed latent codes and labels"""
     print("Loading pre-computed latent codes...")
-    
-    # Load latents (use separated version if available, otherwise fall back to original)
-    separated_train = os.path.join(RESULTS_DIR, 'autoencoder_train_latent_separated.npy')
-    separated_test = os.path.join(RESULTS_DIR, 'autoencoder_test_latent_separated.npy')
-    
-    if os.path.exists(separated_train):
-        print("  → Using SEPARATED latents from fine-tuned encoder")
-        train_latent = np.load(separated_train)
-        test_latent = np.load(separated_test)
+
+    # Allow per-job override via environment variables to avoid race conditions
+    env_train = os.environ.get('TRAIN_LATENTS_PATH')
+    env_test = os.environ.get('TEST_LATENTS_PATH')
+    # If per-job latents provided, use them and skip fallback logic
+    if env_train and os.path.exists(env_train):
+        print(f"  → Using train latents from {env_train}")
+        train_latent = np.load(env_train)
+        if env_test and os.path.exists(env_test):
+            print(f"  → Using test latents from {env_test}")
+            test_latent = np.load(env_test)
+        else:
+            test_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_test_latent.npy'))
     else:
-        print("  → Using original latents")
-        train_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_train_latent.npy'))
-        test_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_test_latent.npy'))
+        # Load latents (use separated version if available, otherwise fall back to original)
+        separated_train = os.path.join(RESULTS_DIR, 'autoencoder_train_latent_separated.npy')
+        separated_test = os.path.join(RESULTS_DIR, 'autoencoder_test_latent_separated.npy')
+
+        if os.path.exists(separated_train):
+            print("  → Using SEPARATED latents from fine-tuned encoder")
+            train_latent = np.load(separated_train)
+            test_latent = np.load(separated_test)
+        else:
+            print("  → Using original latents")
+            train_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_train_latent.npy'))
+            test_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_test_latent.npy'))
     
-    # Load labels
-    train_df = pd.read_feather(os.path.join(DATA_DIR, 'train_data.feather'))
-    test_df = pd.read_feather(os.path.join(DATA_DIR, 'test_data.feather'))
-    
+    # Load labels (allow per-job TRAIN_FEATHER/TEST_FEATHER env vars to avoid shared-file races)
+    env_train_feather = os.environ.get('TRAIN_FEATHER')
+    env_test_feather = os.environ.get('TEST_FEATHER')
+
+    # Read feather files with a few retries to tolerate transient LZ4 decompress errors
+    def _safe_read_feather(path, attempts=5, wait_sec=0.5):
+        for attempt in range(1, attempts + 1):
+            try:
+                return pd.read_feather(path)
+            except Exception as e:
+                msg = str(e)
+                if attempt == attempts:
+                    raise
+                else:
+                    print(f"Warning: failed to read {path} (attempt {attempt}/{attempts}): {msg}")
+                    import time
+                    time.sleep(wait_sec)
+
+    if env_train_feather and os.path.exists(env_train_feather):
+        train_df = _safe_read_feather(env_train_feather)
+    else:
+        train_df = _safe_read_feather(os.path.join(DATA_DIR, 'train_data.feather'))
+
+    if env_test_feather and os.path.exists(env_test_feather):
+        test_df = _safe_read_feather(env_test_feather)
+    else:
+        test_df = _safe_read_feather(os.path.join(DATA_DIR, 'test_data.feather'))
+
     train_labels = train_df['Label'].values
     test_labels = test_df['Label'].values
-    
+
     print(f"Train latents: {train_latent.shape}")
     print(f"Test latents: {test_latent.shape}")
     print(f"Unique chemicals: {np.unique(train_labels)}")
-    
+
+    # Defensive validation: ensure latents and labels align
+    if train_latent.shape[0] != len(train_labels):
+        raise AssertionError(
+            f"Size mismatch between train latents ({train_latent.shape[0]}) and train labels ({len(train_labels)}).\n"
+            "Check that TRAIN_LATENTS_PATH matches TRAIN_FEATHER and that no files were overwritten concurrently."
+        )
+    if test_latent.shape[0] != len(test_labels):
+        raise AssertionError(
+            f"Size mismatch between test latents ({test_latent.shape[0]}) and test labels ({len(test_labels)}).\n"
+            "Check that TEST_LATENTS_PATH matches TEST_FEATHER and that no files were overwritten concurrently."
+        )
+
     return train_latent, train_labels, test_latent, test_labels
 
 

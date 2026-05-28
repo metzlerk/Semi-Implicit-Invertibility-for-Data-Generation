@@ -165,15 +165,31 @@ def load_smile_embeddings():
 
 def load_precomputed_latents():
     """Load ORIGINAL (un-separated) latent codes"""
-    print("Loading ORIGINAL latent codes...")
+    print("Loading normalized latent codes...")
+
+    env_train = os.environ.get('TRAIN_LATENTS_PATH')
+    env_test = os.environ.get('TEST_LATENTS_PATH')
+    if env_train and os.path.exists(env_train):
+        print(f"  → Using train latents from {env_train}")
+        train_latent = np.load(env_train)
+    else:
+        train_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_train_latent.npy'))
+
+    if env_test and os.path.exists(env_test):
+        print(f"  → Using test latents from {env_test}")
+        test_latent = np.load(env_test)
+    else:
+        test_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_test_latent.npy'))
     
-    # Load ORIGINAL latents (not separated)
-    train_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_train_latent.npy'))
-    test_latent = np.load(os.path.join(RESULTS_DIR, 'autoencoder_test_latent.npy'))
-    
-    # Load labels
-    train_df = pd.read_feather(os.path.join(DATA_DIR, 'train_data.feather'))
-    test_df = pd.read_feather(os.path.join(DATA_DIR, 'test_data.feather'))
+    # Load labels (allow split-specific feathers to match per-job data)
+    env_train_feather = os.environ.get('TRAIN_FEATHER')
+    env_test_feather = os.environ.get('TEST_FEATHER')
+
+    train_feather = env_train_feather if env_train_feather and os.path.exists(env_train_feather) else os.path.join(DATA_DIR, 'train_data.feather')
+    test_feather = env_test_feather if env_test_feather and os.path.exists(env_test_feather) else os.path.join(DATA_DIR, 'test_data.feather')
+
+    train_df = pd.read_feather(train_feather)
+    test_df = pd.read_feather(test_feather)
     
     train_labels = train_df['Label'].values
     test_labels = test_df['Label'].values
@@ -407,14 +423,14 @@ def train_diffusion(args):
         train_latent_norm, train_labels, smile_embeddings, BATCH_SIZE
     )
     
-    # Initialize model
+    # Initialize model: set num_classes to the number of unique classes in this split
     model = ClassConditionedDiffusion(
         latent_dim=LATENT_DIM,
         smile_dim=SMILE_DIM,
-        num_classes=NUM_CLASSES,
+        num_classes=len(unique_classes),
         timesteps=TIMESTEPS,
         hidden_dim=HIDDEN_DIM,
-        num_layers=NUM_LAYERS
+        num_layers=NUM_LAYERS,
     ).to(device)
     
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")

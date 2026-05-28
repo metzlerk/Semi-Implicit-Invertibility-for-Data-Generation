@@ -107,8 +107,7 @@ def getacc(dd,ratio=None):
         for k in std_map:
             df = std_map[k].copy()
             df["real_ratio"] = df["real_ratio"].round(1)
-            df = df.pivot(index="num_points_per_class",
-                          columns="real_ratio",values="accuracy")
+            df = df.pivot(index="num_points_per_class", columns="real_ratio", values="accuracy")
             if ratio is not None:
                 df = df.sub(df[ratio],axis="rows")
             new_dd[classifier_name][k] = df
@@ -132,8 +131,9 @@ def FigureH(data,*,title,cnorm=None):
     if cnorm == "off": vmin,vmax = None,None
     
     n_panels = len(data)
-    fig_width = max(6, 3.5 * n_panels)
-    ax,mesh,fig = {},{},plt.figure(figsize=(fig_width,1.9),dpi=600)
+    max_x = max((len(df.index) for df in data.values()), default=1)
+    fig_width = max(10, 0.42 * max_x * n_panels)
+    ax,mesh,fig = {},{},plt.figure(figsize=(fig_width,2.6),dpi=600)
     plt.subplots_adjust(left=0,bottom=0,right=1,top=1,wspace=0.03)
     kws1 = {"weight":"bold","size":9}
     kws2 = {"labelsize":9,"pad":2.5}
@@ -143,9 +143,17 @@ def FigureH(data,*,title,cnorm=None):
         ax[i] = plt.subplot2grid((1,n_panels),(0,i),rowspan=1,colspan=1)
         mesh[i] = ax[i].pcolormesh(X,Y,df.T,vmin=vmin,vmax=vmax,cmap="magma")
         ax[i].set_title(f"{title} | {k}",size=9,weight="bold")
-        ax[i].set_xlabel("n (spectra / class)",labelpad=1.5,**kws1)
+        x_values = np.asarray(df.index, dtype=float)
+        y_values = np.asarray(df.columns, dtype=float)
+        y_labels = [f"{value:.1f}" for value in y_values]
+        xtick_values = x_values
+        x_labels = [f"{int(value):d}" for value in xtick_values]
+        ax[i].set_xlabel("n (training points / class)",labelpad=1.5,**kws1)
         ax[i].set_ylabel("r (real-data ratio)",**kws1)
-        ax[i].set_yticks(np.arange(0,1.1,0.2))
+        ax[i].set_xticks(xtick_values)
+        ax[i].set_xticklabels(x_labels, rotation=90)
+        ax[i].set_yticks(y_values)
+        ax[i].set_yticklabels(y_labels)
         ax[i].tick_params(**kws2)
         if i != 0: ax[i].get_yaxis().set_visible(False)    
     if cnorm != "off":
@@ -186,8 +194,8 @@ if __name__ == "__main__":
     ## converts to pivot table
     aa = getacc(dd)
     
-    ## calculates difference relative to rows for ratio=r
-    aad = getacc(dd,ratio=0)
+    ## calculates difference relative to rows for ratio=r=1.0 baseline
+    aad = getacc(dd,ratio=1.0)
     
     ## gets normalization values for shared colormap
     global_minmax = minmax(aa)
