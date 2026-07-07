@@ -33,14 +33,14 @@ def main(real_feather_path, spectra_npy, labels_npy, out_feather):
         ],
     )
     # determine feature columns from real
-    label_size = 8
-    feature_cols = list(real_df.columns[: (real_df.shape[1] - label_size)])
+    feature_cols = [c for c in real_df.columns if c not in {"Unnamed: 0", "index", "Label", "__index_level_0__", "TemperatureKelvin", "PressureBar", "temp_K"}]
+    feature_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(real_df[c])]
     data_size = len(feature_cols)
 
     X = np.load(spectra_npy)
     y = np.load(labels_npy)
 
-    # align widths: truncate or pad with zeros
+    # align widths: truncate or pad with zeros only if needed
     if X.shape[1] > data_size:
         X = X[:, :data_size]
     elif X.shape[1] < data_size:
