@@ -1,6 +1,9 @@
 # Synthetic IMS Generation - Essential Workflow
 
-This repository contains code for generating synthetic Ion Mobility Spectrometry (IMS) data using a diffusion model trained in latent space. The approach uses separation-guided diffusion to preserve the non-Gaussian manifold structure of chemical latent spaces.
+This repository contains code for generating synthetic Ion Mobility Spectrometry (IMS) data. It includes **two complementary pipelines**:
+
+1. **Latent diffusion** (the original workflow): a class-conditioned diffusion model trained in latent space, using separation-guided diffusion to preserve the non-Gaussian manifold structure of chemical latent spaces. Covered in the "Workflow" section below.
+2. **Temperature-based synthesis ("sandwich" model)** (added July 2026): generates synthetic spectra for a held-out **temperature** regime by training a decoupled autoencoder (latent supervised to the ChemNet embedding space plus a temperature axis) and re-decoding at target temperatures. This directly tests whether synthetic data can fill a temperature-extrapolation gap in a downstream classifier. Covered in "Temperature-Based Synthetic Generation" below.
 
 ## Quick Start
 
@@ -48,6 +51,18 @@ All data files should be in the `Data/` directory. These are available in `/scra
 - `test_data.feather`: Test IMS spectra (354 MB, 74,173 samples)
 - `train_data.feather`: Training IMS spectra (1.1 GB, 222,519 samples)
 - `name_smiles_embedding_file.csv`: Pre-computed ChemNet SMILES embeddings for 8 chemicals (53 KB)
+
+The **temperature-based pipeline** additionally uses spectra files that carry a `TemperatureKelvin` column, available in the same `/scratch/kjmetzler/diffusion_essentials/` staging area:
+- `train_data_with_conditions.feather` (1.1 GB): training IMS spectra with `TemperatureKelvin` / `PressureBar` condition columns
+- `test_data_with_conditions.feather` (355 MB): matching test spectra with condition columns
+
+```bash
+cp /scratch/kjmetzler/diffusion_essentials/train_data_with_conditions.feather Data/
+cp /scratch/kjmetzler/diffusion_essentials/test_data_with_conditions.feather Data/
+```
+
+The **temperature-based pipeline** additionally requires a spectra file carrying a `TemperatureKelvin` column:
+- `train_data_with_conditions.feather` (~1.1 GB): training IMS spectra with `TemperatureKelvin` / `PressureBar` condition columns. **Note:** this file is not yet in the shared `/scratch/kjmetzler/diffusion_essentials/` staging area — stage it there (or point the `--data-feather` flag at wherever you keep it) before running the sandwich model.
 
 ### Required Model Files
 Models should be in the `models/` directory. These are available in `/scratch/kjmetzler/diffusion_essentials/` on the Turing cluster:
@@ -219,6 +234,60 @@ For cluster execution:
 sbatch scripts/run_evaluate_synthetic.sh
 ```
 
+## Temperature-Based Synthetic Generation (Sandwich Model)
+
+This is a second, self-contained pipeline that asks a different question than the diffusion workflow: **can synthetic data cover a temperature regime the classifier never saw during training?**
+
+### Quick Start
+
+```bash
+# One-time: stage the conditioned data (see Prerequisites)
+cp /scratch/kjmetzler/diffusion_essentials/train_data_with_conditions.feather Data/
+
+# Run the full sandwich experiment (~ up to a few hours on GPU)
+sbatch scripts/run_sandwich.sh
+```
+
+### The "sandwich" idea
+
+`scripts/sandwich_model.py` sorts the data by `TemperatureKelvin` and splits it into:
+- **Bread** — the cold + hot temperature extremes (bottom 50% + top 30% by default). Used for training.
+- **Ham** — the middle temperature band (the held-out 20%). Used only for testing.
+
+A **decoupled autoencoder** is trained on **bread only**. It is "decoupled" because the 513-D latent is pinned to a *known* target space — dims `[:512]` are supervised toward the chemical's fixed ChemNet embedding and dim `512` toward normalized temperature (temperature / `--temperature-scale`, default 300 K) — rather than a freely-learned code. Training combines three losses: spectrum reconstruction, ChemNet-latent regression, and temperature regression. Because the latent target is externally fixed (the ChemNet space is itself part of the training signal), the encoder and decoder are not forced to co-adapt to a shared learned code and can be trained separately. The decoder reconstructs the 1676-D IMS spectrum from the full 513-D latent, and holding the ChemNet dims fixed while dialing the isolated temperature dim is what enables temperature-controlled synthesis.
+
+The script then runs four evaluations, comparing a downstream MLP classifier (`MLPClassifierTorch`) across data regimes:
+
+| Task | Train set | Test set | Output PNGs |
+|---|---|---|---|
+| **1** | bread only | ham (unseen middle temps) | `task1_bread_to_ham_*` |
+| **2** | bread + **real** ham DMMP | ham without DMMP | `task2_bread_plus_dmmp_to_ham_rest_*` |
+| **3** | bread + **synthetic** DMMP | ham | `task3_bread_plus_synth_dmmp_to_ham_*` |
+| **4** | — (3-D PCA of bread vs ham) | — | `bread_ham_pca_3d.png` |
+
+Synthetic DMMP (Task 3) is generated by encoding bread's DMMP spectra, perturbing the chemical latent dims with small Gaussian noise, overwriting the temperature latent with values drawn from the **held-out ham temperature range**, and decoding. Task 3 vs Task 1/2 measures whether that synthetic fill-in recovers the accuracy lost to the temperature gap.
+
+Each `make_confusion_and_bar` call writes a normalized confusion matrix, a raw confusion matrix, and an accuracy-bar PNG. Outputs land in the repository root (the SLURM wrapper `cd`s there).
+
+**Key CLI flags** (`scripts/sandwich_model.py`):
+- `--data-feather` (default `Data/train_data_with_conditions.feather`)
+- `--embedding-file` (default `Data/name_smiles_embedding_file.csv`)
+- `--bottom-frac` / `--middle-frac` / `--top-frac` (default `0.5` / `0.2` / `0.3`; must sum to 1.0) — the sandwich slice sizes
+- `--ham-chem` (default `DMMP`) — which chemical is held out of ham for Tasks 2/3
+- `--temperature-scale` (default `300.0`)
+
+### Supporting temperature utilities
+
+These scripts support temperature-split experiments and diagnostics around the sandwich model:
+
+- **`scripts/split_by_temperature.py`** — split a feather into train/test by a temperature quantile (default: bottom 80% train, top 20% test). Writes two feathers.
+- **`scripts/create_temp_splits.py`** — carve a dataset into N equal temperature bands (`split_i_of_N.feather`), e.g. for cross-temperature CV.
+- **`scripts/train_decoupled_autoencoder_temperature.py`** — standalone trainer for the 513-D (512 ChemNet + 1 temperature) decoupled autoencoder; SLURM-guarded (must be launched via `sbatch`). Wrapper: `scripts/run_train_decoupled_autoencoder_temperature.sh`. Saves `models/decoupled_autoencoder_temperature.pth`.
+- **`scripts/plot_pca_temperature.py`** — PCA scatter of spectra colored by temperature → `results/pca_temp_scatter.png`.
+- **`scripts/train_mlp_and_eval.py`** — general MLP train/eval helper used by the temperature-split wrappers.
+
+> **Note:** the two MLP-split wrappers (`scripts/run_temp_split_train.sh`, `scripts/run_train_mlp_temp_split.sh`) were written against an earlier CLI of `train_mlp_and_eval.py` and pass flags (`--std-label`, and omit the now-required `--synthetic-feather`) that no longer match. Treat them as exploratory starting points — update the argument list before relying on them. The `scripts/run_sandwich.sh` path is the verified entry point.
+
 ## Testing the Workflow
 
 ### Pipeline Verification
@@ -256,12 +325,18 @@ To verify the workflow is working:
 │   ├── beta_ablation_comparison.png
 │   └── deb_latent_pca_beta_comparison.png
 ├── scripts/                       # Python and SLURM scripts
-│   ├── train_normalized_diffusion.py          # Main training script
-│   ├── generate_and_decode_full.py            # Generation script
-│   ├── gen_pca_final.py                       # Main PCA visualization
+│   ├── train_normalized_diffusion.py          # Diffusion: main training script
+│   ├── generate_and_decode_full.py            # Diffusion: generation script
+│   ├── gen_pca_final.py                       # Diffusion: main PCA visualization
 │   ├── compare_diffusion_gaussian.py          # Diffusion vs Gaussian comparison
-│   ├── visualize_diffusion_trajectory.py      # Trajectory visualization
-│   └── run_*.sh                               # SLURM batch scripts
+│   ├── visualize_diffusion_trajectory.py      # Diffusion: trajectory visualization
+│   ├── sandwich_model.py                      # Temperature: full sandwich experiment
+│   ├── train_decoupled_autoencoder_temperature.py  # Temperature: decoupled AE trainer (SLURM-guarded)
+│   ├── split_by_temperature.py                # Temperature: quantile train/test split
+│   ├── create_temp_splits.py                  # Temperature: N equal temperature bands
+│   ├── plot_pca_temperature.py                # Temperature: PCA colored by temperature
+│   ├── train_mlp_and_eval.py                  # Shared MLP train/eval helper
+│   └── run_*.sh                               # SLURM batch scripts (incl. run_sandwich.sh)
 ├── logs/                          # SLURM output logs (.gitignored)
 └── LaTeX/                         # Paper drafts and bibliography
 ```
@@ -440,10 +515,10 @@ For questions about this code:
 
 ## Pipeline Verification Status
 
-**Last Updated**: April 17, 2026
+**Last Updated**: July 8, 2026
 
 ### Verified Working
-- **Setup**: File copying from `/scratch/kjmetzler/diffusion_essentials/` tested
+- **Setup**: File copying from `/scratch/kjmetzler/diffusion_essentials/` tested (now includes `train_data_with_conditions.feather` / `test_data_with_conditions.feather`)
 - **Training**: 
   - Training script (`train_normalized_diffusion.py`) - architecture verified
   - Full training run (6-12 hours) - not re-tested after code cleanup
@@ -453,6 +528,12 @@ For questions about this code:
 - **Visualization**: PCA plots generated successfully in ~1 minute
   - Outputs: `images/pca_real_vs_diffusion*.png` files created correctly
 - **Quality**: Generated samples maintain chemical distinctness and realistic IMS spectra structure
+
+### Temperature-Based Pipeline (added July 8, 2026)
+- **Scripts imported** from the `data_generation_dev` branch: `sandwich_model.py`, `train_decoupled_autoencoder_temperature.py`, `split_by_temperature.py`, `create_temp_splits.py`, `plot_pca_temperature.py`, `train_mlp_and_eval.py`, and their `run_*.sh` wrappers.
+- **Entry point**: `sbatch scripts/run_sandwich.sh` (self-contained; does its own temperature splitting).
+- **Data**: `train_data_with_conditions.feather` staged into `/scratch/kjmetzler/diffusion_essentials/`.
+- **Known gap**: the MLP temperature-split wrappers (`run_temp_split_train.sh`, `run_train_mlp_temp_split.sh`) reference an older `train_mlp_and_eval.py` CLI and need their flags updated before use (see the note in "Temperature-Based Synthetic Generation").
 
 ### Setup Checklist for New Users
 
