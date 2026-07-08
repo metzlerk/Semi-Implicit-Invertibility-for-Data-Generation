@@ -6,6 +6,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 
@@ -24,18 +25,24 @@ if [[ -n "${CONDA_ENV}" ]]; then
     conda activate "${CONDA_ENV}"
 fi
 
-TRAIN_COND="${TRAIN_COND:-$HOME/scratch/train_data_with_conditions.feather}"
-TEST_COND="${TEST_COND:-$HOME/scratch/test_data_with_conditions.feather}"
+# Real-only temperature-extrapolation baseline. The held-out test set is the
+# hottest 20% of the training feather (not a separate file), so only TRAIN_COND
+# is needed.
+TRAIN_COND="${TRAIN_COND:-Data/train_data_with_conditions.feather}"
 SPLIT_TRAIN="scratch_splits/train_temp_split.feather"
 SPLIT_TEST="scratch_splits/test_temp_split.feather"
 
-python scripts/split_by_temperature.py --in-file "${TRAIN_COND}" --out-train "${SPLIT_TRAIN}" --out-test "${SPLIT_TEST}" --temp-col TemperatureKelvin --train-quantile 0.8
-MODEL_PATH="models/mlp_realonly_temp.joblib"
-OUT_CSV="results/eval_mlp_realonly_temp.csv"
+python scripts/split_by_temperature.py \
+  --in-file "${TRAIN_COND}" \
+  --out-train "${SPLIT_TRAIN}" \
+  --out-test "${SPLIT_TEST}" \
+  --temp-col TemperatureKelvin \
+  --train-quantile 0.8
 
 python scripts/train_mlp_and_eval.py \
   --real-feather "${SPLIT_TRAIN}" \
   --test-feather "${SPLIT_TEST}" \
+  --std-label realonly_temp \
   --ratio 1.0 \
-    --save-model "${MODEL_PATH}" \
-  --out-csv "${OUT_CSV}"
+  --save-model models/mlp_realonly_temp.pt \
+  --out-csv results/eval_mlp_realonly_temp.csv

@@ -284,9 +284,14 @@ These scripts support temperature-split experiments and diagnostics around the s
 - **`scripts/create_temp_splits.py`** — carve a dataset into N equal temperature bands (`split_i_of_N.feather`), e.g. for cross-temperature CV.
 - **`scripts/train_decoupled_autoencoder_temperature.py`** — standalone trainer for the 513-D (512 ChemNet + 1 temperature) decoupled autoencoder; SLURM-guarded (must be launched via `sbatch`). Wrapper: `scripts/run_train_decoupled_autoencoder_temperature.sh`. Saves `models/decoupled_autoencoder_temperature.pth`.
 - **`scripts/plot_pca_temperature.py`** — PCA scatter of spectra colored by temperature → `results/pca_temp_scatter.png`.
-- **`scripts/train_mlp_and_eval.py`** — general MLP train/eval helper used by the temperature-split wrappers.
+- **`scripts/train_mlp_and_eval.py`** — general MLP train/eval helper. Trains an `MLPClassifierTorch` on a real (optionally + synthetic) feather and evaluates on a held-out test feather. Uses only the spectral `p_*` / `n_*` columns as features — bookkeeping, condition, `Label`, and one-hot class columns are excluded so class identity never leaks into `X`. Key flags: `--real-feather`, `--test-feather`, `--synthetic-feather` (optional; omit for a real-only baseline), `--ratio` (fraction of training data that is real; `1.0` = real only), `--std-label` (names outputs), `--save-model`, `--out-csv`. Writes `results/<label>_{confusion_norm,confusion_raw,accuracy_bar}.png` and a one-row metrics CSV.
 
-> **Note:** the two MLP-split wrappers (`scripts/run_temp_split_train.sh`, `scripts/run_train_mlp_temp_split.sh`) were written against an earlier CLI of `train_mlp_and_eval.py` and pass flags (`--std-label`, and omit the now-required `--synthetic-feather`) that no longer match. Treat them as exploratory starting points — update the argument list before relying on them. The `scripts/run_sandwich.sh` path is the verified entry point.
+**Real-only temperature-extrapolation baselines** (train on the cooler 80% of temperatures, test on the hottest 20%) — a natural comparison point for the sandwich model:
+```bash
+sbatch scripts/run_temp_split_train.sh       # -> results/eval_mlp_realonly_temp_split.csv
+sbatch scripts/run_train_mlp_temp_split.sh   # equivalent baseline (full SLURM/conda wrapper)
+```
+Both wrappers call `split_by_temperature.py` then `train_mlp_and_eval.py` in real-only mode (`--ratio 1.0`); they are near-duplicates, so run whichever fits your cluster setup.
 
 ## Testing the Workflow
 
@@ -533,7 +538,7 @@ For questions about this code:
 - **Scripts imported** from the `data_generation_dev` branch: `sandwich_model.py`, `train_decoupled_autoencoder_temperature.py`, `split_by_temperature.py`, `create_temp_splits.py`, `plot_pca_temperature.py`, `train_mlp_and_eval.py`, and their `run_*.sh` wrappers.
 - **Entry point**: `sbatch scripts/run_sandwich.sh` (self-contained; does its own temperature splitting).
 - **Data**: `train_data_with_conditions.feather` staged into `/scratch/kjmetzler/diffusion_essentials/`.
-- **Known gap**: the MLP temperature-split wrappers (`run_temp_split_train.sh`, `run_train_mlp_temp_split.sh`) reference an older `train_mlp_and_eval.py` CLI and need their flags updated before use (see the note in "Temperature-Based Synthetic Generation").
+- **MLP temperature-split baselines**: `run_temp_split_train.sh` / `run_train_mlp_temp_split.sh` fixed and verified — `train_mlp_and_eval.py` now supports real-only runs (`--ratio 1.0`, optional `--synthetic-feather`), excludes one-hot/label columns from features (no leakage), and honors `--std-label` / `--save-model` / `--out-csv`. Smoke-tested end to end on a synthetic feather (split → train → eval → CSV/PNGs).
 
 ### Setup Checklist for New Users
 
