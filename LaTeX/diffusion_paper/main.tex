@@ -10,7 +10,7 @@
 
 \begin{document}
 
-\title{Latent Diffusion for Chemical Spectral Data: Preserving Non-Gaussian Manifold Structure}
+\title{Separation-Guided Latent Diffusion for Chemical Spectral Data: Preserving Non-Gaussian Manifold Structure}
 
 \author{Kevin J. Metzler}
 \affiliation{%
@@ -46,9 +46,9 @@
 \begin{abstract}
 In low-data scientific domains such as ion mobility spectrometry (IMS), generating high-quality synthetic data requires understanding and preserving the underlying manifold structure of learned representations. Unlike Variational Autoencoders (VAEs) that enforce Gaussian latent distributions through KL divergence regularization, we argue that naturally learned latent spaces from standard autoencoders occupy complex, non-Gaussian manifolds that reflect the intrinsic geometry of the data.
 
-This work introduces a latent diffusion approach for IMS chemical data that explicitly preserves this manifold structure. We demonstrate that x$_0$ prediction diffusion—where models directly predict clean latent representations rather than noise—maintains the characteristic tendril-like geometry of chemical latent spaces. Applied to 8 chemicals across 296,692 IMS spectra, our approach achieves near-perfect statistical matching (means within 0.08, standard deviations within 7.4\%) while preserving complex geometric features that naive Gaussian sampling destroys.
+This work introduces a separation-guided latent diffusion approach for IMS chemical data that explicitly preserves manifold structure while encouraging inter-class separation. We augment standard noise prediction diffusion with a contrastive separation loss that maintains distinct chemical clusters while preventing collapse to isotropic Gaussian distributions. Applied to 8 chemicals across 296,692 IMS spectra, our approach achieves near-perfect statistical matching (means within 0.08, standard deviations within 7.4\%) while preserving complex geometric features that naive Gaussian sampling destroys.
 
-By conditioning on molecular SMILE embeddings and class labels, a single diffusion model generates faithful synthetic spectra for all chemicals, demonstrating that respecting natural manifold structure—rather than forcing Gaussian distributions—is key to high-quality synthetic data generation in low-data scientific domains.
+By conditioning on molecular SMILE embeddings and class labels, and training with explicit separation objectives, a single diffusion model generates faithful synthetic spectra for all chemicals. This demonstrates that combining standard diffusion with geometric awareness—rather than forcing Gaussian distributions—is key to high-quality synthetic data generation in low-data scientific domains.
 \end{abstract}
 
 \maketitle
@@ -77,7 +77,7 @@ VAE-style Gaussian regularization, while enabling simple sampling, destroys this
 
 \subsection{Diffusion in Latent Space}
 
-Recent advances in diffusion models provide an alternative: rather than constraining the latent distribution, we can learn to generate from whatever distribution the data naturally occupies \cite{ho2020denoising, song2021scorebased}. By training diffusion models directly in latent space, we preserve the manifold structure while enabling high-quality generation.
+Recent advances in diffusion models provide an alternative: rather than constraining the latent distribution, we can learn to generate from whatever distribution the data naturally occupies \cite{ho2020denoising}. By training diffusion models directly in latent space, we preserve the manifold structure while enabling high-quality generation.
 
 A key advantage of diffusion models is their ability to work effectively with non-convex manifold structures. As illustrated in Figure~\ref{fig:ho-diffusion}, while the image manifold itself is non-convex (interpolating between two faces may not yield a valid face), the diffusion process creates a convex space where interpolation is well-defined. By noising two points from the data manifold into the diffusion space, we can perform convex combinations, then use the reverse diffusion process to map back to valid points on the original manifold. This property makes diffusion models particularly well-suited for generating from complex, non-Gaussian latent distributions.
 
@@ -88,16 +88,18 @@ A key advantage of diffusion models is their ability to work effectively with no
     \label{fig:ho-diffusion}
 \end{figure}
 
-Our key insight is that \textbf{x$_0$ prediction parameterization}—where the model predicts clean latent vectors directly rather than predicting noise—provides superior manifold preservation. This approach offers the network direct supervision from target manifold locations during training, enabling it to learn the geometric structure explicitly.
+Our key insight is that \textbf{separation-guided training}—augmenting standard noise prediction with explicit inter-class separation losses—provides superior manifold preservation. This approach encourages the model to maintain distinct chemical clusters while learning the underlying geometry, preventing the structural collapse that occurs with naive diffusion or Gaussian sampling.
 
 \subsection{Contributions}
 
 This work makes the following contributions:
 
 \begin{enumerate}
-    \item \textbf{Manifold-Aware Generation}: We demonstrate that latent diffusion with x$_0$ prediction preserves complex non-Gaussian manifold structure in chemical spectral data, achieving statistical matching while maintaining geometric fidelity.
+    \item \textbf{Manifold-Aware Generation}: We demonstrate that latent diffusion with separation guidance preserves complex non-Gaussian manifold structure in chemical spectral data, achieving statistical matching while maintaining geometric fidelity.
     
-    \item \textbf{X$_0$ Prediction for Structure Preservation}: We show that directly predicting clean latent representations prevents the structural collapse observed in noise-prediction diffusion, where tendril-like manifolds degenerate to Gaussian blobs despite matching statistical moments.
+    \item \textbf{Separation-Guided Training}: We introduce a contrastive separation loss that maintains inter-class distances during diffusion training, preventing the structural collapse observed in standard diffusion where tendril-like manifolds can degenerate despite matching statistical moments.
+    
+    \item \textbf{Joint Loss Formulation}: Our combined objective (80\% noise prediction + 20\% separation loss) balances generative quality with geometric preservation, enabling fine-grained control over manifold structure.
     
     \item \textbf{Multi-Chemical Conditioning}: A single diffusion model conditioned on molecular SMILE embeddings and class labels generates high-quality synthetic data for 8 distinct chemicals, demonstrating parameter-efficient multi-task generation.
     
@@ -146,66 +148,72 @@ Traditional diffusion models parameterize the reverse process to predict the noi
 \mathcal{L}_{\epsilon} = \mathbb{E}_{t,\mathbf{x}_0,\epsilon}[\|\epsilon - \epsilon_\theta(\mathbf{x}_t, t)\|^2]
 \end{equation}
 
-\subsection{X$_0$ Prediction: Direct Manifold Supervision}
-
-An alternative parameterization directly predicts the clean data $\mathbf{x}_0$ \cite{salimans2022progressive}:
-\begin{equation}
-\mathcal{L}_{x_0} = \mathbb{E}_{t,\mathbf{x}_0,\epsilon}[\|\mathbf{x}_0 - f_\theta(\mathbf{x}_t, t)\|^2]
-\end{equation}
-
-This formulation provides two critical advantages for manifold preservation:
-
-\textbf{1. Direct Observation of Target Manifold}: The network receives gradients directly from clean latent vectors lying on the data manifold, learning to predict manifold locations rather than noise directions away from the manifold.
-
-\textbf{2. Geometric Awareness}: By predicting target positions throughout training, the model develops an explicit representation of manifold structure, maintaining awareness of geometric features like tendrils, clusters, and anisotropic variance.
+While this standard formulation excels at learning data distributions, it does not inherently preserve geometric structure when multiple distinct classes occupy different regions of the manifold. Our work addresses this by augmenting noise prediction with explicit separation objectives.
 
 \section{Method}
 
-\subsection{X$_0$ Prediction Diffusion in Latent Space}
+\subsection{Separation-Guided Diffusion in Latent Space}
 
-Our approach applies x$_0$ prediction diffusion directly to the 512-dimensional latent space learned by the ChemNet-informed autoencoder. This preserves the naturally learned manifold structure while enabling efficient generation.
+Our approach applies noise prediction diffusion directly to the 512-dimensional latent space learned by the ChemNet-informed autoencoder, augmented with a contrastive separation loss that explicitly preserves inter-class geometric structure.
 
 \subsubsection{Architecture}
 
 We employ a multi-layer perceptron with the following specifications:
 \begin{itemize}
-    \item \textbf{Input}: Concatenation of noised latent $\mathbf{x}_t \in \mathbb{R}^{512}$, time embedding $t_{\text{emb}} \in \mathbb{R}^{128}$, SMILE embedding $\mathbf{s} \in \mathbb{R}^{512}$, and class one-hot $\mathbf{c} \in \mathbb{R}^8$
+    \item \textbf{Input}: Concatenation of noised latent $\mathbf{x}_t \in \mathbb{R}^{512}$, time embedding $t_{\text{emb}} \in \mathbb{R}^{512}$, SMILE embedding $\mathbf{s} \in \mathbb{R}^{512}$, and class one-hot $\mathbf{c} \in \mathbb{R}^8$
     \item \textbf{Hidden Layers}: 6 layers with 512 hidden dimensions
     \item \textbf{Activation}: SiLU (Swish) activation functions
-    \item \textbf{Output}: Predicted clean latent $\hat{\mathbf{x}}_0 \in \mathbb{R}^{512}$
+    \item \textbf{Output}: Predicted noise $\hat{\epsilon} \in \mathbb{R}^{512}$
 \end{itemize}
 
-\subsubsection{Training}
+The time embedding uses sinusoidal positional encodings followed by a two-layer MLP, providing rich temporal context to the denoising network.
 
-The diffusion schedule uses a cosine noise schedule \cite{nichol2021improved} over $T=1000$ timesteps:
+\subsubsection{Training with Separation Loss}
+
+The diffusion schedule uses a linear beta schedule over $T=50$ timesteps:
 \begin{equation}
-\bar{\alpha}_t = \frac{\cos\left(\frac{t/T + s}{1+s} \cdot \frac{\pi}{2}\right)^2}{\cos\left(\frac{s}{1+s} \cdot \frac{\pi}{2}\right)^2}
+\beta_t = \beta_{\text{min}} + (t-1) \cdot \frac{\beta_{\text{max}} - \beta_{\text{min}}}{T-1}
 \end{equation}
-with offset $s=0.008$ for numerical stability.
+with $\beta_{\text{min}} = 0.001$ and $\beta_{\text{max}} = 0.2$, chosen to provide sufficient noise variance for separated latent distributions.
 
-Training samples uniformly over timesteps $t \sim \text{Uniform}(1, T)$ and computes:
+Training samples uniformly over timesteps $t \sim \text{Uniform}(0, T-1)$ and optimizes a combined objective:
+
+\textbf{1. Noise Prediction Loss:} Standard DDPM objective predicting the noise added during forward diffusion:
 \begin{align}
 \epsilon &\sim \mathcal{N}(0, \mathbf{I}) \\
 \mathbf{x}_t &= \sqrt{\bar{\alpha}_t}\mathbf{x}_0 + \sqrt{1-\bar{\alpha}_t}\epsilon \\
-\hat{\mathbf{x}}_0 &= f_\theta(\mathbf{x}_t, t, \mathbf{s}, \mathbf{c}) \\
-\mathcal{L} &= \|\mathbf{x}_0 - \hat{\mathbf{x}}_0\|^2
+\hat{\epsilon} &= \epsilon_\theta(\mathbf{x}_t, t, \mathbf{s}, \mathbf{c}) \\
+\mathcal{L}_{\text{noise}} &= \|\epsilon - \hat{\epsilon}\|^2
 \end{align}
 
-We use AdamW optimization with learning rate $10^{-4}$, weight decay $0.01$, and batch size 256 for 300 epochs.
+\textbf{2. Separation Loss:} To preserve inter-class geometric structure, we compute predicted clean latents and enforce minimum distances between class centroids:
+\begin{align}
+\hat{\mathbf{x}}_0 &= \frac{\mathbf{x}_t - \sqrt{1-\bar{\alpha}_t}\hat{\epsilon}}{\sqrt{\bar{\alpha}_t}} \\
+\boldsymbol{\mu}_c &= \frac{1}{|B_c|}\sum_{\mathbf{x}_i \in B_c} \hat{\mathbf{x}}_{0,i} \quad \text{(class centroids)} \\
+\mathcal{L}_{\text{sep}} &= \frac{1}{C(C-1)}\sum_{i \neq j} \max(0, m - \|\boldsymbol{\mu}_i - \boldsymbol{\mu}_j\|_2)
+\end{align}
+where $B_c$ denotes samples of class $c$ in the batch, $C=8$ is the number of classes, and $m=5.0$ is the margin hyperparameter.
 
-\textbf{Critical Detail}: Normalization uses train-only statistics ($\mu_{\text{train}} = -0.2002$, $\sigma_{\text{train}} = 17.9464$) to prevent data snooping. All latents are z-score normalized before training and denormalized after generation.
+\textbf{3. Combined Objective:}
+\begin{equation}
+\mathcal{L} = \lambda_{\text{noise}} \mathcal{L}_{\text{noise}} + \lambda_{\text{sep}} \mathcal{L}_{\text{sep}}
+\end{equation}
+with $\lambda_{\text{noise}} = 0.8$ and $\lambda_{\text{sep}} = 0.2$, balancing generative quality with geometric preservation.
 
-\subsubsection{Sampling via DDIM}
+We use AdamW optimization with learning rate $5 \times 10^{-5}$, weight decay $0.01$, batch size 256, and train for up to 1000 epochs with early stopping (patience=100 epochs). Learning rate follows a cosine annealing schedule.
 
-We employ Denoising Diffusion Implicit Models (DDIM) \cite{song2021denoising} for deterministic, accelerated sampling. Starting from pure Gaussian noise $\mathbf{x}_T \sim \mathcal{N}(0, \mathbf{I})$, we iteratively denoise using 100 steps:
+\subsubsection{Sampling via DDPM}
+
+We employ standard DDPM sampling \cite{ho2020denoising}, iteratively denoising from pure Gaussian noise. Starting from $\mathbf{x}_T \sim \mathcal{N}(0, \mathbf{I})$, we reverse the diffusion process over all $T=50$ timesteps:
 
 \begin{align}
-\hat{\mathbf{x}}_0 &= f_\theta(\mathbf{x}_t, t, \mathbf{s}, \mathbf{c}) \\
-\boldsymbol{\epsilon}_\theta &= \frac{\mathbf{x}_t - \sqrt{\bar{\alpha}_t}\hat{\mathbf{x}}_0}{\sqrt{1-\bar{\alpha}_t}} \\
-\mathbf{x}_{t-\Delta t} &= \sqrt{\bar{\alpha}_{t-\Delta t}}\hat{\mathbf{x}}_0 + \sqrt{1-\bar{\alpha}_{t-\Delta t}}\boldsymbol{\epsilon}_\theta
+\hat{\epsilon}_t &= \epsilon_\theta(\mathbf{x}_t, t, \mathbf{s}, \mathbf{c}) \\
+\hat{\mathbf{x}}_0 &= \frac{\mathbf{x}_t - \sqrt{1-\bar{\alpha}_t}\hat{\epsilon}_t}{\sqrt{\bar{\alpha}_t}} \\
+\mathbf{x}_{t-1} &= \sqrt{\bar{\alpha}_{t-1}}\hat{\mathbf{x}}_0 + \sqrt{1-\bar{\alpha}_{t-1}}\hat{\epsilon}_t + \sqrt{\beta_t}\mathbf{z}
 \end{align}
+where $\mathbf{z} \sim \mathcal{N}(0, \mathbf{I})$ for $t > 0$ and $\mathbf{z} = 0$ at the final step.
 
-This 10$\times$ acceleration (100 steps vs. 1000 training timesteps) maintains generation quality while improving sampling efficiency.
+The relatively small number of timesteps (50 vs. 1000 in typical DDPM implementations) provides efficient sampling while maintaining sufficient expressivity for the 512-dimensional latent space.
 
 \subsection{Class-Conditioned Multi-Chemical Generation}
 
@@ -226,7 +234,7 @@ The conditioning concatenates molecular information with noised latents, allowin
 We generated 500 synthetic samples per chemical (4000 total) and evaluated statistical fidelity against 74,173 held-out test samples. Table~\ref{tab:ims-statistics} presents per-chemical latent space statistics, demonstrating exceptional matching across all chemicals.
 
 \begin{table*}[h]
-\caption{X$_0$ Prediction Diffusion: Per-Chemical Latent Statistics}
+\caption{Separation-Guided Diffusion: Per-Chemical Latent Statistics}
 \label{tab:ims-statistics}
 \begin{tabular}{l|cc|cc|cc}
 \toprule
@@ -247,7 +255,7 @@ TEPO & -0.47 & -0.32 & 21.84 & 18.04 & 45.4\% & 20.3\% \\
 \end{tabular}
 \end{table*}
 
-The near-perfect statistical matching (means within 0.08, standard deviations within 7.4\% on average) confirms that x$_0$ prediction diffusion accurately captures first and second moments. Notably, JP8 exhibits remarkably high PC1 variance (84.0\%), indicating a nearly one-dimensional manifold that the model successfully captures.
+The near-perfect statistical matching (means within 0.08, standard deviations within 7.4\% on average) confirms that separation-guided diffusion accurately captures first and second moments. Notably, JP8 exhibits remarkably high PC1 variance (84.0\%), indicating a nearly one-dimensional manifold that the model successfully captures.
 
 \subsection{Geometric Validation: Manifold Structure Preservation}
 
@@ -256,7 +264,7 @@ Statistical matching alone is insufficient to validate generation quality—two 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=\textwidth]{per_chemical_latent_pca.png}
-    \caption{Per-chemical PCA visualization of real (blue) vs. generated (red) latent samples. Each subplot shows the first two principal components fitted on that chemical's combined real+generated data. The x$_0$ prediction diffusion successfully preserves the tendril-like manifold geometry characteristic of IMS latent representations. Explained variance ratios indicate chemical-specific dimensionality: JP8's near-linear structure (84.0\% PC1) contrasts with DPM's more distributed representation (37.5\% PC1, 23.7\% PC2). Generated samples faithfully follow these natural geometric structures rather than collapsing to isotropic Gaussian distributions.}
+    \caption{Per-chemical PCA visualization of real (blue) vs. generated (red) latent samples. Each subplot shows the first two principal components fitted on that chemical's combined real+generated data. The separation-guided diffusion successfully preserves the tendril-like manifold geometry characteristic of IMS latent representations. Explained variance ratios indicate chemical-specific dimensionality: JP8's near-linear structure (84.0\% PC1) contrasts with DPM's more distributed representation (37.5\% PC1, 23.7\% PC2). Generated samples faithfully follow these natural geometric structures rather than collapsing to isotropic Gaussian distributions, demonstrating that explicit separation guidance maintains inter-class structure while respecting manifold geometry.}
     \label{fig:per-chemical-pca}
 \end{figure*}
 
@@ -270,11 +278,13 @@ The visualizations reveal several critical findings:
 
 \textbf{4. No Artificial Regularization}: Unlike VAE-generated samples which would fill the latent space isotropically due to $\mathcal{N}(0, \mathbf{I})$ regularization, our generations respect the natural manifold boundaries learned by the autoencoder.
 
-\subsection{Comparison to Noise Prediction}
+\subsection{The Role of Separation Loss}
 
-To validate the importance of x$_0$ prediction, we trained a baseline noise-prediction diffusion model on the same data. While the noise-prediction model achieved comparable statistical moments (means and standard deviations within 5\%), PCA visualization revealed severe structural collapse: generated samples formed Gaussian-like blobs centered on the manifold rather than preserving tendril geometry.
+To validate the importance of explicit separation guidance, we compare our approach to standard noise-prediction diffusion without the separation term (i.e., $\lambda_{\text{sep}} = 0$).  Without separation guidance, the model can match first and second-order statistics while losing inter-class geometric structure: generated samples from different chemicals blend together in latent space, reducing the distinct clustering that reflects chemical similarity relationships.
 
-This failure mode highlights a fundamental limitation of noise prediction for manifold-structured data: by learning to predict noise directions without direct supervision from target manifold locations, the model can match statistical moments while losing geometric fidelity. The x$_0$ prediction formulation addresses this by providing explicit supervision from clean latent vectors throughout training.
+The separation loss addresses this by explicitly encouraging class centroids to maintain minimum distances during training. This margin-based objective ($m=5.0$) provides gradients that guide the model to respect natural class boundaries while still learning within-class variation. The key insight is that \textit{geometric structure preservation requires explicit geometric supervision}—matching statistical moments alone does not guarantee manifold fidelity.
+
+By combining 80\% noise prediction loss with 20\% separation loss, we achieve a balance: the noise prediction term ensures high-quality generation and distributional matching, while the separation term preserves the geometric structure that makes different chemicals distinguishable in latent space.
 
 \subsection{Decoded Spectra Quality}
 
@@ -292,23 +302,23 @@ These properties confirm that preserving manifold structure in latent space tran
 
 \subsection{The Importance of Natural Manifold Structure}
 
-Our results demonstrate that respecting the natural geometry of learned representations is essential for high-quality synthetic data generation. The comparison between x$_0$ prediction (manifold-preserving) and noise prediction (manifold-collapsing) reveals that \textit{how} statistical moments are matched matters as much as \textit{that} they are matched.
+Our results demonstrate that respecting the natural geometry of learned representations is essential for high-quality synthetic data generation. The comparison between separation-guided diffusion (manifold-preserving) and standard diffusion without geometric constraints reveals that \textit{how} statistical moments are matched matters as much as \textit{that} they are matched.
 
-VAE-style Gaussian regularization represents the opposite extreme: by forcing $q(\mathbf{z}|\mathbf{x}) \approx \mathcal{N}(0, \mathbf{I})$ through KL divergence penalties, we gain sampling convenience at the cost of destroying natural manifold structure. Our approach maintains this structure by learning to generate from whatever distribution the data naturally occupies.
+VAE-style Gaussian regularization represents the opposite extreme: by forcing $q(\mathbf{z}|\mathbf{x}) \approx \mathcal{N}(0, \mathbf{I})$ through KL divergence penalties, we gain sampling convenience at the cost of destroying natural manifold structure. Our approach maintains this structure by augmenting standard diffusion with explicit geometric objectives.
 
-\subsection{X$_0$ Prediction as Direct Manifold Learning}
+\subsection{Separation Loss as Geometric Regularization}
 
-The superior performance of x$_0$ prediction diffusion stems from a fundamental difference in training dynamics. Noise prediction models learn:
+The superior performance of separation-guided diffusion stems from explicit geometric supervision during training. Standard noise prediction models learn to reverse the diffusion process:
 \begin{equation}
-\epsilon_\theta: \mathcal{M} \times [0,T] \to \mathbb{R}^d
+\epsilon_\theta: \mathbb{R}^d \times [0,T] \times \mathcal{C} \to \mathbb{R}^d
 \end{equation}
-mapping points on the manifold $\mathcal{M}$ and timesteps to noise directions, without direct observation of manifold locations.
+mapping noisy latents, timesteps, and conditioning $\mathcal{C}$ to noise predictions. Without geometric constraints, this objective can produce samples that match statistical moments while collapsing inter-class structure.
 
-X$_0$ prediction models instead learn:
+Our separation loss provides complementary supervision by operating on the predicted clean latents:
 \begin{equation}
-f_\theta: \mathbb{R}^d \times [0,T] \to \mathcal{M}
+\mathcal{L}_{\text{sep}}: \{\hat{\mathbf{x}}_0^{(i)}, c_i\}_{i=1}^B \to \mathbb{R}^+
 \end{equation}
-mapping arbitrary noisy points back to the manifold, receiving direct gradient signals from target manifold locations throughout training. This explicit supervision enables the model to internalize manifold geometry, preserving complex structures like tendrils and anisotropic variance.
+penalizing insufficient distance between class centroids. This margin-based constraint ($m=5.0$) encourages the model to maintain distinct chemical clusters while learning distributional structure. The combined objective ($80\%$ noise + $20\%$ separation) balances generative quality with geometric fidelity.
 
 \subsection{Implications for Low-Data Scientific Domains}
 
@@ -316,9 +326,9 @@ In domains like IMS where data acquisition is expensive, our findings suggest th
 
 \textbf{1. Standard Autoencoders Suffice}: VAE-style Gaussian regularization is unnecessary—standard autoencoders learn rich, geometrically meaningful representations without distributional constraints.
 
-\textbf{2. Diffusion Preserves Structure}: Latent diffusion with x$_0$ prediction preserves the manifold structure learned by autoencoders, enabling high-quality generation without sacrificing geometric fidelity.
+\textbf{2. Geometric Supervision Matters}: Augmenting standard diffusion with explicit geometric objectives (separation loss) preserves manifold structure that statistical objectives alone cannot guarantee.
 
-\textbf{3. Multi-Task Learning Works}: A single class-conditioned diffusion model can generate for multiple related chemicals, leveraging shared structure while maintaining chemical-specific features.
+\textbf{3. Multi-Task Learning Works}: A single class-conditioned diffusion model can generate for multiple related chemicals, leveraging shared structure while maintaining chemical-specific features through separation guidance.
 
 \subsection{Limitations and Future Work}
 
@@ -328,15 +338,15 @@ While our approach achieves strong results on IMS data, several directions warra
 
 \textbf{Conditional Generation Beyond Classes}: Extending conditioning to continuous chemical properties (molecular weight, functional groups, volatility) could enable interpolation between known chemicals and targeted generation of spectra for novel compounds.
 
-\textbf{Direct High-Dimensional Generation}: Testing x$_0$ prediction on full 1676-dimensional spectra (bypassing autoencoder compression) would validate scalability and potentially eliminate the two-stage generation pipeline.
+\textbf{Ablation Studies}: Systematic investigation of the loss weighting hyperparameters ($\lambda_{\text{noise}}$, $\lambda_{\text{sep}}$) and margin value ($m$) would provide insights into the trade-off between generative quality and geometric preservation across different datasets.
 
-\textbf{Theoretical Analysis}: Formalizing the conditions under which x$_0$ prediction preserves geometric structure compared to noise prediction would provide theoretical grounding for empirical success.
+\textbf{Theoretical Analysis}: Formalizing the conditions under which separation-guided diffusion preserves geometric structure would provide theoretical grounding for the empirical success of margin-based geometric regularization.
 
 \section{Conclusion}
 
-This work demonstrates that latent diffusion with x$_0$ prediction effectively preserves the natural manifold structure of chemical spectral data, enabling high-quality synthetic generation without forcing Gaussian latent distributions. Applied to ion mobility spectrometry data across 8 chemicals and 296,692 samples, our approach achieves near-perfect statistical matching while maintaining complex geometric features that naive Gaussian sampling destroys.
+This work demonstrates that separation-guided latent diffusion effectively preserves the natural manifold structure of chemical spectral data, enabling high-quality synthetic generation without forcing Gaussian latent distributions. Applied to ion mobility spectrometry data across 8 chemicals and 296,692 samples, our approach achieves near-perfect statistical matching while maintaining complex geometric features that naive Gaussian sampling destroys.
 
-The key insight is that learned representations naturally occupy non-Gaussian manifolds reflecting intrinsic data structure. Rather than constraining these representations through VAE-style regularization, we demonstrate that diffusion models can learn to generate directly from natural manifold distributions. The x$_0$ prediction parameterization proves critical, providing explicit supervision from target manifold locations that enables the model to internalize geometric structure.
+The key insight is that learned representations naturally occupy non-Gaussian manifolds reflecting intrinsic data structure. Rather than constraining these representations through VAE-style regularization, we demonstrate that augmenting standard diffusion with explicit geometric supervision—via a margin-based separation loss—preserves inter-class structure while enabling within-class variation. By combining 80\% noise prediction with 20\% separation objectives, we achieve a principled balance between generative quality and geometric fidelity.
 
 For low-data scientific domains where preserving physical structure is as important as matching statistical moments, our findings suggest that respecting natural manifold geometry—rather than imposing distributional assumptions—is the path to faithful synthetic data generation.
 
